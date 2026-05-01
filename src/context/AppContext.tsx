@@ -182,6 +182,7 @@ const AppContext = createContext<(AppState & AppActions) | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---- Theme ----
+// ---- Theme ----
   const [theme, setThemeState] = useState<"dark" | "light">(() => {
     const saved = localStorage.getItem("melo_theme") as "dark" | "light" | null;
     return saved || "dark";
@@ -198,10 +199,92 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   // ---- Auth ----
+  // ---- Auth ----
   const [user, setUser] = useState<User | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // ---- State ----
+  // ---- State ----
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(defaultTracks[0]);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolumeState] = useState(0.7);
+  const [queue, setQueue] = useState<Track[]>(defaultTracks.slice(1));
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { id: "m1", sender: "dj", text: "...凌晨三点，你还醒着。", timestamp: Date.now() },
+    { id: "m2", sender: "dj", text: "这种时候，空气里的声音会比白天更清晰。适合听一些《Weightless》之类的...让频率慢慢沉降。", timestamp: Date.now() },
+  ]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [weather, setWeather] = useState<WeatherInfo>(defaultWeather);
+  const [toast, setToast] = useState<{ message: string; visible: boolean } | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [radioMode, setRadioMode] = useState(false);
+  const [envVibe, setEnvVibe] = useState<EnvVibe>({ mood: "Chill", intensity: 0.5, radioMode: false, immersed: false });
+  const [currentSubtitle, setCurrentSubtitle] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [audioAnalyser, setAudioAnalyser] = useState<AnalyserNode | null>(null);
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [currentLyricIndex, setCurrentLyricIndex] = useState(0);
+  const [neteaseSession, setNeteaseSession] = useState<NeteaseSession | null>(null);
+
+  // ---- Refs ----
+  // ---- Refs ----
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ---- Toast ----
+  // ---- Toast ----
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, visible: true });
+    toastTimer.current = setTimeout(() => {
+      setToast((t) => (t ? { ...t, visible: false } : null));
+      setTimeout(() => setToast(null), 300);
+    }, 2500);
+  }, []);
+
+  // ---- Playback controls ----
+  const autoNext = useCallback(() => {
+    setQueue((q) => {
+      if (!q || q.length === 0) return q;
+      const newQ = [...q];
+      const next = newQ.shift();
+      if (next) setCurrentTrack(next);
+      return newQ;
+    });
+  }, []);
+
+  // ---- Load chat history ----
+  // ---- Load chat history ----
+  const loadChatHistory = useCallback(async () => {
+    try {
+      const data = await trpcGet("chat.history", { limit: 50 });
+      if (data?.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+        const history: ChatMessage[] = data.messages.map((m: any) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          timestamp: m.timestamp,
+          type: m.type,
+          recommendation: m.recommendation,
+        }));
+        // Keep welcome messages if no history
+        setMessages((prev) => history.length > 0 ? history : prev);
+      }
+    } catch (err) {
+      console.error("loadChatHistory error:", err);
+    }
+  }, []);
+
+  // ---- Auth callbacks ----
   const loadUser = useCallback(async () => {
     const token = getToken();
     if (!token) return;
@@ -214,7 +297,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("melo_token");
     }
   }, []);
-
   useEffect(() => { loadUser(); }, [loadUser]);
 
   const login = useCallback(async (name: string, password: string) => {
@@ -259,40 +341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const openLoginModal = useCallback(() => { setAuthError(null); setShowLoginModal(true); }, []);
   const closeLoginModal = useCallback(() => { setShowLoginModal(false); }, []);
 
-  // ---- State ----
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(defaultTracks[0]);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolumeState] = useState(0.7);
-  const [queue, setQueue] = useState<Track[]>(defaultTracks.slice(1));
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: "m1", sender: "dj", text: "...凌晨三点，你还醒着。", timestamp: Date.now() },
-    { id: "m2", sender: "dj", text: "这种时候，空气里的声音会比白天更清晰。适合听一些《Weightless》之类的...让频率慢慢沉降。", timestamp: Date.now() },
-  ]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [weather, setWeather] = useState<WeatherInfo>(defaultWeather);
-  const [toast, setToast] = useState<{ message: string; visible: boolean } | null>(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [radioMode, setRadioMode] = useState(false);
-  const [envVibe, setEnvVibe] = useState<EnvVibe>({ mood: "Chill", intensity: 0.5, radioMode: false, immersed: false });
-  const [currentSubtitle, setCurrentSubtitle] = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [audioAnalyser, setAudioAnalyser] = useState<AnalyserNode | null>(null);
-  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
-  const [currentLyricIndex, setCurrentLyricIndex] = useState(0);
-  const [neteaseSession, setNeteaseSession] = useState<NeteaseSession | null>(null);
-
-  // ---- Refs ----
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recognitionRef = useRef<any>(null);
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-
+  // ---- Audio element + Web Audio API ----
   // ---- Audio element + Web Audio API ----
   useEffect(() => {
     const audio = new Audio();
@@ -348,6 +397,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [lyrics.length]);
 
   // ---- Play/Pause sync ----
+  // ---- Play/Pause sync ----
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audio.src) return;
@@ -359,8 +409,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isPlaying]);
 
   // ---- Volume sync ----
+  // ---- Volume sync ----
   useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
 
+  // ---- Load track URL from Netease ----
   // ---- Load track URL from Netease ----
   const loadTrackUrl = useCallback(async (track: Track) => {
     if (!track.neteaseId) return;
@@ -396,6 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [volume, isPlaying]);
 
   // ---- Fetch lyrics ----
+  // ---- Fetch lyrics ----
   const fetchLyrics = useCallback(async (neteaseId: number) => {
     if (!neteaseId) return;
     try {
@@ -414,6 +467,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ---- Netease bind/unbind ----
   // ---- Netease bind/unbind ----
   const bindNetease = useCallback(async (phone: string, password: string) => {
     try {
@@ -445,6 +499,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---- Seek ----
+  // ---- Seek ----
   const seekTo = useCallback((position: number) => {
     const audio = audioRef.current;
     if (!audio || !duration) return;
@@ -453,6 +508,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setProgress(clamped);
   }, [duration]);
 
+  // ---- Import Playlist ----
   // ---- Import Playlist ----
   const importPlaylist = useCallback(async (playlistId: string | number) => {
     if (!playlistId) return;
@@ -492,6 +548,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentTrack, showToast]);
 
   // Load netease session on mount
+  // Load netease session on mount
   useEffect(() => {
     if (!user) { setNeteaseSession(null); return; }
     trpcGet("netease.mySession")
@@ -508,6 +565,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, [user]);
 
+  // When currentTrack changes, load URL + lyrics
   // When currentTrack changes, load URL + lyrics
   useEffect(() => {
     if (currentTrack) {
@@ -529,29 +587,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentTrack?.id]);
 
-  // ---- Toast ----
-  const showToast = useCallback((message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ message, visible: true });
-    toastTimer.current = setTimeout(() => {
-      setToast((t) => (t ? { ...t, visible: false } : null));
-      setTimeout(() => setToast(null), 300);
-    }, 2500);
-  }, []);
-
+  // ---- Basic playback controls ----
   // ---- Playback controls ----
   const togglePlay = useCallback(() => setIsPlaying((p) => !p), []);
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), []);
-
-  const autoNext = useCallback(() => {
-    setQueue((q) => {
-      if (!q || q.length === 0) return q;
-      const newQ = [...q];
-      const next = newQ.shift();
-      if (next) setCurrentTrack(next);
-      return newQ;
-    });
-  }, []);
 
   const nextTrack = useCallback(() => {
     setQueue((q) => {
@@ -585,6 +624,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---- Voice Input (Web Speech API) ----
+  // ---- Voice Input (Web Speech API) ----
   const startVoiceInput = useCallback(() => {
     const w = window as any;
     if (!("webkitSpeechRecognition" in w || "SpeechRecognition" in w)) {
@@ -611,6 +651,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); }
   }, []);
 
+  // ---- TTS (Browser + Fish.Audio fallback) ----
   // ---- TTS (Browser + Fish.Audio fallback) ----
   const speakText = useCallback((text: string) => {
     if (!text) return;
@@ -659,6 +700,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---- Radio Mode ----
+  // ---- Radio Mode ----
   const toggleRadioMode = useCallback(() => {
     setRadioMode((prev) => {
       const next = !prev;
@@ -672,27 +714,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setIntensity = useCallback((intensity: number) => setEnvVibe((v) => ({ ...v, intensity })), []);
   const setImmersed = useCallback((immersed: boolean) => setEnvVibe((v) => ({ ...v, immersed })), []);
 
-  // ---- Load chat history ----
-  const loadChatHistory = useCallback(async () => {
-    try {
-      const data = await trpcGet("chat.history", { limit: 50 });
-      if (data?.messages && Array.isArray(data.messages) && data.messages.length > 0) {
-        const history: ChatMessage[] = data.messages.map((m: any) => ({
-          id: m.id,
-          sender: m.sender,
-          text: m.text,
-          timestamp: m.timestamp,
-          type: m.type,
-          recommendation: m.recommendation,
-        }));
-        // Keep welcome messages if no history
-        setMessages((prev) => history.length > 0 ? history : prev);
-      }
-    } catch (err) {
-      console.error("loadChatHistory error:", err);
-    }
-  }, []);
-
+  // Load history when user changes
   // Load history when user changes
   useEffect(() => {
     if (user) {
@@ -700,6 +722,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, loadChatHistory]);
 
+  // ---- Send Message (AI Chat) ----
   // ---- Send Message (AI Chat) ----
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -765,6 +788,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [messages, weather, envVibe, radioMode, speakText, currentTrack]);
 
   // ---- Search & Play ----
+  // ---- Search & Play ----
   const searchAndPlay = useCallback(async (query: string) => {
     if (!query.trim()) return;
     try {
@@ -801,6 +825,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [showToast]);
 
   // ---- Play from recommendation ----
+  // ---- Play from recommendation ----
   const playFromRecommendation = useCallback(async (rec: Recommendation) => {
     if (!rec?.title) return;
     try {
@@ -834,6 +859,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [showToast]);
 
   // ---- Weather ----
+  // ---- Weather ----
   const fetchWeather = useCallback(async () => {
     try {
       const data = await trpcGet("weather.current", { location: "101020100" });
@@ -852,6 +878,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
+  // ---- Value ----
   // ---- Value ----
   const value: AppState & AppActions = {
     isPlaying, currentTrack, progress, duration, volume, queue,
