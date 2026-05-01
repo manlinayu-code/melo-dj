@@ -1,5 +1,14 @@
 node_modules
 dist
 .git
-*.swp
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+coverage
 *.log
+.DS_Store
+.vscode
+.idea
+*.tsbuildinfo
