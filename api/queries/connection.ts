@@ -13,7 +13,6 @@ export function getDb() {
   }
   if (!instance) {
     instance = drizzle(env.databaseUrl, {
-      mode: "planetscale",
       schema: fullSchema,
     });
   }

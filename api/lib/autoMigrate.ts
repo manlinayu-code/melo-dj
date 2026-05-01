@@ -80,6 +80,7 @@ export async function runAutoMigrate() {
     console.log("[migrate] Auto-migration completed successfully");
   } catch (err: any) {
     console.error("[migrate] Migration failed:", err.message);
+    throw err;
   } finally {
     if (conn) await conn.end();
   }

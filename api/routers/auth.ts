@@ -31,20 +31,26 @@ export const authRouter = createRouter({
       const db = getDb();
       if (!db) return { success: false, error: "Database not available", token: null };
 
-      const existing = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
-      if (existing.length > 0) {
-        return { success: false, error: "Username already exists", token: null };
-      }
+      try {
+        const existing = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
+        if (existing.length > 0) {
+          return { success: false, error: "Username already exists", token: null };
+        }
 
-      const hashed = hashPassword(input.password);
-      const result = await db.insert(users).values({
-        name: input.name,
-        password: hashed,
-        avatar: `/melo-avatar.jpg`,
-      });
-      const userId = Number(result[0].insertId);
-      const token = signJWT({ userId, name: input.name });
-      return { success: true, token, user: { id: userId, name: input.name } };
+        const hashed = hashPassword(input.password);
+        const result = await db.insert(users).values({
+          name: input.name,
+          password: hashed,
+          avatar: `/melo-avatar.jpg`,
+        });
+        const userId = Number(result[0].insertId);
+        const token = signJWT({ userId, name: input.name });
+        return { success: true, token, user: { id: userId, name: input.name } };
+      } catch (err: any) {
+        console.error("[auth.register] Database error:", err);
+        const message = err.cause?.sqlMessage || err.cause?.message || err.message || "Database error";
+        return { success: false, error: message, token: null };
+      }
     }),
 
   login: publicQuery
@@ -58,18 +64,24 @@ export const authRouter = createRouter({
       const db = getDb();
       if (!db) return { success: false, error: "Database not available", token: null };
 
-      const rows = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
-      if (rows.length === 0) {
-        return { success: false, error: "User not found", token: null };
-      }
+      try {
+        const rows = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
+        if (rows.length === 0) {
+          return { success: false, error: "User not found", token: null };
+        }
 
-      const user = rows[0];
-      if (!user.password || !verifyPassword(input.password, user.password)) {
-        return { success: false, error: "Invalid password", token: null };
-      }
+        const user = rows[0];
+        if (!user.password || !verifyPassword(input.password, user.password)) {
+          return { success: false, error: "Invalid password", token: null };
+        }
 
-      const token = signJWT({ userId: user.id, name: user.name });
-      return { success: true, token, user: { id: user.id, name: user.name || "" } };
+        const token = signJWT({ userId: user.id, name: user.name });
+        return { success: true, token, user: { id: user.id, name: user.name || "" } };
+      } catch (err: any) {
+        console.error("[auth.login] Database error:", err);
+        const message = err.cause?.sqlMessage || err.cause?.message || err.message || "Database error";
+        return { success: false, error: message, token: null };
+      }
     }),
 
   me: publicQuery.query(async ({ ctx }) => {
