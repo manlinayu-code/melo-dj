@@ -1,7 +1,51 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { Track, DJProfile, ChatMessage, WeatherInfo, EnvVibe, UserTaste } from '@/types';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import type { Track, DJProfile, ChatMessage, WeatherInfo, EnvVibe } from "@/types";
 
-interface AppContextType {
+// ====== Safe API helper ======
+// tRPC GET:  /api/trpc/procedureName?input={"json":{...}}
+// tRPC POST: /api/trpc/procedureName  body:{"json":{...}}
+async function trpcGet(procedure: string, input?: Record<string, unknown>) {
+  let url = `/api/trpc/${procedure}`;
+  if (input) {
+    url += `?input=${encodeURIComponent(JSON.stringify({ json: input }))}`;
+  }
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  const json = await res.json();
+  // tRPC response: { result: { data: ... } } or { error: ... }
+  if (json.error) throw new Error(json.error.message || "tRPC error");
+  return json.result?.data;
+}
+
+async function trpcPost(procedure: string, input: Record<string, unknown>) {
+  const res = await fetch(`/api/trpc/${procedure}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ json: input }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message || "tRPC error");
+  return json.result?.data;
+}
+
+// ====== Types ======
+interface Recommendation {
+  action: string;
+  title: string;
+  artist: string;
+  reason: string;
+  vibe_match: string;
+}
+
+interface AppState {
   isPlaying: boolean;
   currentTrack: Track | null;
   progress: number;
@@ -16,13 +60,16 @@ interface AppContextType {
   isSpeaking: boolean;
   radioMode: boolean;
   envVibe: EnvVibe;
-  userTaste: UserTaste | null;
   currentSubtitle: string;
+  isListening: boolean;
+}
+
+interface AppActions {
   togglePlay: () => void;
   setVolume: (v: number) => void;
   nextTrack: () => void;
   prevTrack: () => void;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string) => Promise<void>;
   playTrack: (track: Track) => void;
   addToQueue: (track: Track) => void;
   removeFromQueue: (id: string) => void;
@@ -30,161 +77,136 @@ interface AppContextType {
   toggleFav: (id: string) => void;
   showToast: (message: string) => void;
   searchAndPlay: (query: string) => Promise<void>;
-  speak: (text: string) => void;
+  speakText: (text: string) => void;
   stopSpeaking: () => void;
   toggleRadioMode: () => void;
   setMood: (mood: string) => void;
   setIntensity: (v: number) => void;
   setImmersed: (v: boolean) => void;
+  startVoiceInput: () => void;
+  stopVoiceInput: () => void;
   fetchWeather: () => Promise<void>;
+  playFromRecommendation: (rec: Recommendation) => Promise<void>;
 }
 
 const defaultTracks: Track[] = [
-  { id: '1', title: 'Weightless', artist: 'Marconi Union', album: 'Weightless', duration: 480, cover: '/cover-if.jpg', genre: ['Ambient', 'Relaxation'], isFav: false, neteaseId: 26222029 },
-  { id: '2', title: 'Midnight Sessions', artist: 'Nujabes', album: 'Modal Soul', duration: 342, cover: '/cover-biheung.jpg', genre: ['Jazz-HipHop', 'Lo-fi'], isFav: true, neteaseId: 22677581 },
-  { id: '3', title: "Creep", artist: 'Radiohead', album: 'OK Computer', duration: 238, cover: '/cover-creepin.jpg', genre: ['Alternative Rock', 'Indie'], isFav: false, neteaseId: 22466201 },
-  { id: '4', title: 'Gymnopédie No.1', artist: 'Erik Satie', album: 'Gymnopédies', duration: 189, cover: '/cover-hero.jpg', genre: ['Classical', 'Piano'], isFav: false, neteaseId: 5188952 },
-  { id: '5', title: 'The Night We Met', artist: 'Lord Huron', album: 'Strange Trails', duration: 208, cover: '/cover-wine.jpg', genre: ['Indie Folk', 'Dream Pop'], isFav: false, neteaseId: 460112107 },
-  { id: '6', title: '所念皆星河', artist: 'CMJ', album: '所念皆星河', duration: 195, cover: '/cover-tiancai.jpg', genre: ['Piano', 'Chinese'], isFav: false, neteaseId: 1432383355 },
+  { id: "1", title: "Weightless", artist: "Marconi Union", album: "Weightless", duration: 480, cover: "/cover-if.jpg", genre: ["Ambient"], isFav: false, neteaseId: 26222029 },
+  { id: "2", title: "Midnight City", artist: "M83", album: "Hurry Up We're Dreaming", duration: 243, cover: "/cover-biheung.jpg", genre: ["Electronic"], isFav: false, neteaseId: 27678685 },
+  { id: "3", title: "所念皆星河", artist: "CMJ", album: "所念皆星河", duration: 195, cover: "/cover-tiancai.jpg", genre: ["Piano", "Chinese"], isFav: false, neteaseId: 1432383355 },
+  { id: "4", title: "Kiss of Life", artist: "Sade", album: "Love Deluxe", duration: 274, cover: "/cover-wine.jpg", genre: ["R&B", "Soul"], isFav: true, neteaseId: 21993616 },
+  { id: "5", title: "Gymnopédie No.1", artist: "Erik Satie", album: "Gymnopédies", duration: 189, cover: "/cover-hero.jpg", genre: ["Classical"], isFav: false, neteaseId: 5188952 },
 ];
 
 const djPersona: DJProfile = {
-  name: 'Claudio',
-  avatar: '/melo-avatar.jpg',
-  tagline: '深夜电台，只给失眠的人',
-  bio: '我是一台老旧的收音机，在凌晨三点的频率里，替你筛选那些配得上此刻孤独的声音。我听天气、听心跳、听城市渐渐安静下来的过程...',
-  genres: ['JAZZ-HIPHOP', 'NEO-CLASSICAL', 'AMBIENT', 'INDIE', 'POST-PUNK', 'DREAM POP', 'SHOEGAZE', 'CITY POP'],
+  name: "Claudio",
+  avatar: "/melo-avatar.jpg",
+  tagline: "深夜电台，只给失眠的人",
+  bio: "我是一台老旧的收音机，在凌晨三点的频率里，替你筛选那些配得上此刻孤独的声音。我听天气、听心跳、听城市渐渐安静下来的过程...",
+  genres: ["JAZZ-HIPHOP", "NEO-CLASSICAL", "AMBIENT", "INDIE", "POST-PUNK", "DREAM POP", "SHOEGAZE", "CITY POP"],
   isOnline: true,
 };
 
 const defaultWeather: WeatherInfo = {
-  condition: 'rainy',
+  condition: "rainy",
   temp: 18,
-  city: 'Shanghai',
-  text: '小雨',
-  wind: '东南风 3级',
+  city: "Shanghai",
+  text: "小雨",
+  wind: "东南风 3级",
   humidity: 78,
 };
 
-const AppContext = createContext<AppContextType | null>(null);
+const AppContext = createContext<(AppState & AppActions) | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  // ---- State ----
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(defaultTracks[0]);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolumeState] = useState(0.8);
+  const [volume, setVolumeState] = useState(0.7);
   const [queue, setQueue] = useState<Track[]>(defaultTracks.slice(1));
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'm1', sender: 'dj', text: '...凌晨三点，你还醒着。', timestamp: Date.now() },
-    { id: 'm2', sender: 'dj', text: '这种时候，空气里的声音会比白天更清晰。适合听一些《Weightless》之类的...让频率慢慢沉降。', timestamp: Date.now() },
+    { id: "m1", sender: "dj", text: "...凌晨三点，你还醒着。", timestamp: Date.now() },
+    { id: "m2", sender: "dj", text: "这种时候，空气里的声音会比白天更清晰。适合听一些《Weightless》之类的...让频率慢慢沉降。", timestamp: Date.now() },
   ]);
   const [isTyping, setIsTyping] = useState(false);
+  const [weather, setWeather] = useState<WeatherInfo>(defaultWeather);
   const [toast, setToast] = useState<{ message: string; visible: boolean } | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [radioMode, setRadioMode] = useState(false);
-  const [envVibe, setEnvVibe] = useState<EnvVibe>({ mood: 'Chill', intensity: 0.5, radioMode: false, immersed: false });
-  const [userTaste] = useState<UserTaste | null>(null);
-  const [currentSubtitle, setCurrentSubtitle] = useState('');
-  const [weather, setWeather] = useState<WeatherInfo>(defaultWeather);
+  const [envVibe, setEnvVibe] = useState<EnvVibe>({ mood: "Chill", intensity: 0.5, radioMode: false, immersed: false });
+  const [currentSubtitle, setCurrentSubtitle] = useState("");
+  const [isListening, setIsListening] = useState(false);
 
+  // ---- Refs ----
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Audio element init
+  // ---- Audio element ----
   useEffect(() => {
     const audio = new Audio();
-    audio.crossOrigin = 'anonymous';
+    audio.crossOrigin = "anonymous";
     audioRef.current = audio;
     const onTimeUpdate = () => setProgress(audio.currentTime);
     const onLoadedMetadata = () => setDuration(audio.duration || 0);
-    const onEnded = () => { setIsPlaying(false); nextTrack(); };
-    const onError = () => { console.error('Audio error'); setIsPlaying(false); };
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('loadedmetadata', onLoadedMetadata);
-    audio.addEventListener('ended', onEnded);
-    audio.addEventListener('error', onError);
+    const onEnded = () => { setIsPlaying(false); autoNext(); };
+    const onError = () => { console.error("Audio error"); setIsPlaying(false); };
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
     return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-      audio.removeEventListener('ended', onEnded);
-      audio.removeEventListener('error', onError);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
       audio.pause();
     };
   }, []);
 
-  // Handle play/pause
+  // ---- Play/Pause sync ----
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audio.src) return;
     if (isPlaying) {
-      audio.play().catch((err) => { console.error('Play error:', err); setIsPlaying(false); });
+      audio.play().catch((err) => { console.error("Play error:", err); setIsPlaying(false); });
     } else {
       audio.pause();
     }
   }, [isPlaying]);
 
-  // Handle volume
+  // ---- Volume sync ----
   useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
 
-  // Update audio source when track changes
+  // ---- Load track URL from Netease ----
+  const loadTrackUrl = useCallback(async (track: Track) => {
+    if (!track.neteaseId) return;
+    try {
+      const data = await trpcGet("netease.songUrl", { id: track.neteaseId });
+      const url = data?.data?.[0]?.url;
+      if (url && audioRef.current) {
+        audioRef.current.src = url;
+        audioRef.current.volume = volume;
+        if (isPlaying) audioRef.current.play().catch(() => {});
+      }
+    } catch (err) {
+      console.error("loadTrackUrl error:", err);
+    }
+  }, [volume, isPlaying]);
+
+  // When currentTrack changes, load URL
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !currentTrack) return;
-    setProgress(0); setDuration(0);
-    if (currentTrack.neteaseId) {
-      // Use direct fetch to get song URL
-      fetch(`/api/trpc/netease.songUrl?input=${encodeURIComponent(JSON.stringify({ id: currentTrack.neteaseId }))}`)
-        .then((r) => r.json())
-        .then((result) => {
-          const data = result.result?.data?.data;
-          const url = data?.[0]?.url;
-          if (url) {
-            audio.src = url;
-            audio.volume = volume;
-            if (isPlaying) audio.play().catch(console.error);
-          }
-        })
-        .catch(console.error);
+    if (currentTrack) {
+      setProgress(0);
+      setDuration(0);
+      loadTrackUrl(currentTrack);
     }
   }, [currentTrack?.id]);
 
-  // Fetch weather on mount
-  useEffect(() => {
-    fetchWeather();
-    const interval = setInterval(fetchWeather, 600000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const togglePlay = useCallback(() => setIsPlaying((p) => !p), []);
-  const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), []);
-
-  const nextTrack = useCallback(() => {
-    setQueue((q) => {
-      if (q.length === 0) return q;
-      const newQueue = [...q];
-      const next = newQueue.shift()!;
-      setCurrentTrack(next);
-      return newQueue;
-    });
-  }, []);
-
-  const prevTrack = useCallback(() => {
-    if (audioRef.current) { audioRef.current.currentTime = 0; setProgress(0); }
-  }, []);
-
-  const playTrack = useCallback((track: Track) => { setCurrentTrack(track); setIsPlaying(true); }, []);
-  const addToQueue = useCallback((track: Track) => setQueue((q) => [...q, track]), []);
-  const removeFromQueue = useCallback((id: string) => setQueue((q) => q.filter((t) => t.id !== id)), []);
-  const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
-    setQueue((q) => { const newQueue = [...q]; const [moved] = newQueue.splice(fromIndex, 1); newQueue.splice(toIndex, 0, moved); return newQueue; });
-  }, []);
-  const toggleFav = useCallback((id: string) => {
-    setQueue((q) => q.map((t) => (t.id === id ? { ...t, isFav: !t.isFav } : t)));
-    setCurrentTrack((t) => (t && t.id === id ? { ...t, isFav: !t.isFav } : t));
-  }, []);
-
+  // ---- Toast ----
   const showToast = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ message, visible: true });
@@ -194,185 +216,306 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 2500);
   }, []);
 
-  const sendMessage = useCallback(async (text: string) => {
-    const userMsg: ChatMessage = { id: `u-${Date.now()}`, sender: 'user', text, timestamp: Date.now() };
-    setMessages((msgs) => [...msgs, userMsg]);
-    setIsTyping(true);
+  // ---- Playback controls ----
+  const togglePlay = useCallback(() => setIsPlaying((p) => !p), []);
+  const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), []);
 
-    try {
-      const history = messages.slice(-8).map((m) => ({
-        role: m.sender === 'user' ? 'user' as const : 'assistant' as const,
-        content: m.text,
-      }));
-      const now = new Date();
-      const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  const autoNext = useCallback(() => {
+    setQueue((q) => {
+      if (!q || q.length === 0) return q;
+      const newQ = [...q];
+      const next = newQ.shift();
+      if (next) setCurrentTrack(next);
+      return newQ;
+    });
+  }, []);
 
-      // Call chat API directly via fetch
-      const chatRes = await fetch('/api/trpc/chat.message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          json: {
-            text,
-            history,
-            env: {
-              time: timeStr,
-              weather: weather.text,
-              location: weather.city,
-              mood: envVibe.mood,
-              intensity: envVibe.intensity,
-              userGenres: userTaste?.topGenres?.map((g) => g.name) || [],
-              userArtists: userTaste?.topArtists?.map((a) => a.name) || [],
-              recentPlays: messages.filter((m) => m.sender === 'dj' && m.recommendation).slice(-3).map((m) => m.recommendation?.title || ''),
-              radioMode: radioMode,
-            },
-          },
-        }),
-      });
-      const chatResult = await chatRes.json();
-      const result = chatResult.result?.data;
+  const nextTrack = useCallback(() => {
+    setQueue((q) => {
+      if (!q || q.length === 0) return q;
+      const newQ = [...q];
+      const next = newQ.shift();
+      if (next) { setCurrentTrack(next); setIsPlaying(true); }
+      return newQ;
+    });
+  }, []);
 
-      if (!result) throw new Error('No response from chat API');
+  const prevTrack = useCallback(() => {
+    if (audioRef.current) { audioRef.current.currentTime = 0; setProgress(0); }
+  }, []);
 
-      const djMsg: ChatMessage = {
-        id: `d-${Date.now()}`,
-        sender: 'dj',
-        text: result.text,
-        timestamp: Date.now(),
-        type: result.recommendation ? 'action' : 'text',
-        recommendation: result.recommendation,
-      };
-      setMessages((msgs) => [...msgs, djMsg]);
+  const playTrack = useCallback((track: Track) => { setCurrentTrack(track); setIsPlaying(true); }, []);
+  const addToQueue = useCallback((track: Track) => setQueue((q) => [...(q || []), track]), []);
+  const removeFromQueue = useCallback((id: string) => setQueue((q) => (q || []).filter((t) => t.id !== id)), []);
+  const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
+    setQueue((q) => {
+      if (!q || fromIndex < 0 || toIndex < 0 || fromIndex >= q.length || toIndex >= q.length) return q;
+      const newQ = [...q];
+      const [moved] = newQ.splice(fromIndex, 1);
+      newQ.splice(toIndex, 0, moved);
+      return newQ;
+    });
+  }, []);
+  const toggleFav = useCallback((id: string) => {
+    setQueue((q) => (q || []).map((t) => (t.id === id ? { ...t, isFav: !t.isFav } : t)));
+    setCurrentTrack((t) => (t && t.id === id ? { ...t, isFav: !t.isFav } : t));
+  }, []);
 
-      // Show subtitle in radio mode
-      if (radioMode) {
-        setCurrentSubtitle(result.text);
-        if (subtitleTimer.current) clearTimeout(subtitleTimer.current);
-        subtitleTimer.current = setTimeout(() => setCurrentSubtitle(''), 8000);
-      }
-
-      // If recommendation exists, search and play
-      if (result.recommendation) {
-        const rec = result.recommendation;
-        const searchRes = await fetch(`/api/trpc/netease.search?input=${encodeURIComponent(JSON.stringify({ keywords: `${rec.title} ${rec.artist}`, limit: 5 }))}`);
-        const searchResult = await searchRes.json();
-        const songs = searchResult.result?.data?.result?.songs || [];
-        if (songs.length > 0) {
-          const s = songs[0];
-          const newTrack: Track = {
-            id: `netease-${s.id}`,
-            title: s.name,
-            artist: s.ar.map((a: any) => a.name).join(', '),
-            album: s.al.name,
-            duration: Math.floor(s.dt / 1000),
-            cover: s.al.picUrl || '/cover-if.jpg',
-            genre: [rec.vibe_match || 'Recommended'],
-            isFav: false,
-            neteaseId: s.id,
-          };
-          setQueue((q) => [newTrack, ...q]);
-          showToast(`Claudio 推荐: 《${rec.title}》— ${rec.artist}`);
-        }
-      }
-
-      // Auto speak if radio mode
-      speak(result.text);
-    } catch (err) {
-      console.error('Chat error:', err);
-      const errorMsg: ChatMessage = {
-        id: `d-${Date.now()}`,
-        sender: 'dj',
-        text: radioMode ? 'The signal is fading... let me find another frequency.' : '唱片卡住了...让我换一张。',
-        timestamp: Date.now(),
-      };
-      setMessages((msgs) => [...msgs, errorMsg]);
-    } finally {
-      setIsTyping(false);
+  // ---- Voice Input (Web Speech API) ----
+  const startVoiceInput = useCallback(() => {
+    const w = window as any;
+    if (!("webkitSpeechRecognition" in w || "SpeechRecognition" in w)) {
+      showToast("浏览器不支持语音识别");
+      return;
     }
-  }, [messages, weather, envVibe, userTaste, radioMode, showToast]);
-
-  const searchAndPlay = useCallback(async (query: string) => {
-    try {
-      const res = await fetch(`/api/trpc/netease.search?input=${encodeURIComponent(JSON.stringify({ keywords: query, limit: 10 }))}`);
-      const result = await res.json();
-      const songs = result.result?.data?.result?.songs || [];
-      if (songs.length === 0) { showToast('Claudio 没找到这首歌，换个关键词试试？'); return; }
-      const tracks: Track[] = songs.map((s: any, i: number) => ({
-        id: `netease-${s.id}-${i}`,
-        title: s.name,
-        artist: s.ar.map((a: any) => a.name).join(', '),
-        album: s.al.name,
-        duration: Math.floor(s.dt / 1000),
-        cover: s.al.picUrl || '/cover-if.jpg',
-        genre: ['Search Result'],
-        isFav: false,
-        neteaseId: s.id,
-      }));
-      setQueue(tracks.slice(1));
-      setCurrentTrack(tracks[0]);
-      setIsPlaying(true);
-      showToast(`Claudio 找到了 ${tracks.length} 首歌`);
-    } catch (err) { console.error('Search error:', err); showToast('搜索出错了，Claudio 的网线被猫咬断了'); }
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "zh-CN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => { setIsListening(false); showToast("语音识别失败，请重试"); };
+    recognition.onresult = (event: any) => {
+      const transcript = event.results?.[0]?.[0]?.transcript;
+      if (transcript) { showToast(`语音识别: "${transcript}"`); sendMessage(transcript); }
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
   }, [showToast]);
 
-  const speak = useCallback((text: string) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = radioMode ? 'en-US' : 'zh-CN';
-    utterance.pitch = 0.85;
-    utterance.rate = radioMode ? 0.88 : 0.92;
-    utterance.volume = 0.75;
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find((v) => radioMode ? v.lang.includes('en') && v.name.includes('Google') : v.lang.includes('zh'));
-    if (preferredVoice) utterance.voice = preferredVoice;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+  const stopVoiceInput = useCallback(() => {
+    if (recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); }
+  }, []);
+
+  // ---- TTS (Browser + Fish.Audio fallback) ----
+  const speakText = useCallback((text: string) => {
+    if (!text) return;
+    // Stop any current TTS
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
+
+    // Try Fish.Audio first
+    const tryFishAudio = async () => {
+      try {
+        const data = await trpcPost("fishAudio.speak", { text: text.slice(0, 500) });
+        if (data?.success && data.audioBase64) {
+          const audio = new Audio(`data:audio/mp3;base64,${data.audioBase64}`);
+          ttsAudioRef.current = audio;
+          audio.onplay = () => setIsSpeaking(true);
+          audio.onended = () => setIsSpeaking(false);
+          audio.onerror = () => { setIsSpeaking(false); tryBrowserTTS(); };
+          audio.play().catch(() => tryBrowserTTS());
+          return;
+        }
+      } catch { /* fallback */ }
+      tryBrowserTTS();
+    };
+
+    const tryBrowserTTS = () => {
+      if (!window.speechSynthesis) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = radioMode ? "en-US" : "zh-CN";
+      utterance.pitch = 0.85;
+      utterance.rate = radioMode ? 0.88 : 0.92;
+      utterance.volume = 0.75;
+      const voices = window.speechSynthesis.getVoices();
+      const v = voices.find((voice) => (radioMode ? voice.lang.includes("en") : voice.lang.includes("zh")));
+      if (v) utterance.voice = v;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    };
+
+    tryFishAudio();
   }, [radioMode]);
 
-  const stopSpeaking = useCallback(() => { if (window.speechSynthesis) { window.speechSynthesis.cancel(); } setIsSpeaking(false); }, []);
+  const stopSpeaking = useCallback(() => {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
+    setIsSpeaking(false);
+  }, []);
 
+  // ---- Radio Mode ----
   const toggleRadioMode = useCallback(() => {
     setRadioMode((prev) => {
       const next = !prev;
       setEnvVibe((v) => ({ ...v, radioMode: next }));
-      showToast(next ? 'Radio Mode ON — Claudio is now speaking' : 'Chat Mode — Claudio is listening');
+      showToast(next ? "Radio Mode ON — Claudio is now speaking" : "Chat Mode — Claudio is listening");
       return next;
     });
   }, [showToast]);
 
-  const setMood = useCallback((mood: string) => { setEnvVibe((v) => ({ ...v, mood })); }, []);
-  const setIntensity = useCallback((intensity: number) => { setEnvVibe((v) => ({ ...v, intensity })); }, []);
-  const setImmersed = useCallback((immersed: boolean) => { setEnvVibe((v) => ({ ...v, immersed })); }, []);
+  const setMood = useCallback((mood: string) => setEnvVibe((v) => ({ ...v, mood })), []);
+  const setIntensity = useCallback((intensity: number) => setEnvVibe((v) => ({ ...v, intensity })), []);
+  const setImmersed = useCallback((immersed: boolean) => setEnvVibe((v) => ({ ...v, immersed })), []);
 
+  // ---- Send Message (AI Chat) ----
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim()) return;
+    const userMsg: ChatMessage = { id: `u-${Date.now()}`, sender: "user", text: text.trim(), timestamp: Date.now() };
+    setMessages((msgs) => [...msgs, userMsg]);
+    setIsTyping(true);
+
+    try {
+      const history = (messages || [])
+        .slice(-8)
+        .map((m) => ({ role: (m.sender === "user" ? "user" : "assistant") as "user" | "assistant", content: m.text }));
+
+      const now = new Date();
+      const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+
+      const result = await trpcPost("chat.message", {
+        text: text.trim(),
+        history,
+        env: {
+          time: timeStr,
+          weather: weather?.text || "clear",
+          location: weather?.city || "Shanghai",
+          mood: envVibe?.mood || "Chill",
+          intensity: envVibe?.intensity ?? 0.5,
+          userGenres: [],
+          userArtists: [],
+          recentPlays: [],
+          radioMode: radioMode || false,
+        },
+      });
+
+      if (!result) throw new Error("Empty response from chat API");
+
+      const djMsg: ChatMessage = {
+        id: `d-${Date.now()}`,
+        sender: "dj",
+        text: result.text || "...",
+        timestamp: Date.now(),
+        type: result.recommendation ? "action" : "text",
+        recommendation: result.recommendation || undefined,
+      };
+      setMessages((msgs) => [...msgs, djMsg]);
+
+      // Radio mode subtitle
+      if (radioMode && result.text) {
+        setCurrentSubtitle(result.text);
+        if (subtitleTimer.current) clearTimeout(subtitleTimer.current);
+        subtitleTimer.current = setTimeout(() => setCurrentSubtitle(""), 10000);
+      }
+
+      // Auto-speak in radio mode
+      if (radioMode && result.text) speakText(result.text);
+    } catch (err: any) {
+      console.error("sendMessage error:", err);
+      const fallback: ChatMessage = {
+        id: `d-${Date.now()}`,
+        sender: "dj",
+        text: radioMode ? "The signal is fading..." : "唱片卡住了...让我换一张。",
+        timestamp: Date.now(),
+      };
+      setMessages((msgs) => [...msgs, fallback]);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [messages, weather, envVibe, radioMode, speakText]);
+
+  // ---- Search & Play ----
+  const searchAndPlay = useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    try {
+      showToast(`搜索「${query}」...`);
+      const data = await trpcGet("netease.search", { keywords: query.trim(), limit: 10 });
+      const songs = data?.result?.songs;
+      if (!songs || !Array.isArray(songs) || songs.length === 0) {
+        showToast("Claudio 没找到这首歌，换个关键词试试？");
+        return;
+      }
+      const tracks: Track[] = songs
+        .filter((s: any) => s && s.id)
+        .map((s: any, i: number) => ({
+          id: `nw-${s.id}-${i}`,
+          title: s.name || "未知",
+          artist: Array.isArray(s.ar) ? s.ar.map((a: any) => a?.name || "").join(", ") : "未知",
+          album: s.al?.name || "",
+          duration: Math.floor((s.dt || 0) / 1000),
+          cover: s.al?.picUrl || "/cover-if.jpg",
+          genre: ["Search"],
+          isFav: false,
+          neteaseId: s.id,
+        }));
+      if (tracks.length > 0) {
+        setQueue(tracks.slice(1));
+        setCurrentTrack(tracks[0]);
+        setIsPlaying(true);
+        showToast(`Claudio 找到了 ${tracks.length} 首歌`);
+      }
+    } catch (err: any) {
+      console.error("searchAndPlay error:", err);
+      showToast("搜索出错了，Claudio 的网线被猫咬断了");
+    }
+  }, [showToast]);
+
+  // ---- Play from recommendation ----
+  const playFromRecommendation = useCallback(async (rec: Recommendation) => {
+    if (!rec?.title) return;
+    try {
+      showToast(`Claudio 正在搜索《${rec.title}》...`);
+      const data = await trpcGet("netease.search", { keywords: `${rec.title} ${rec.artist || ""}`.trim(), limit: 5 });
+      const songs = data?.result?.songs;
+      if (!songs || !Array.isArray(songs) || songs.length === 0) {
+        showToast("抱歉，没找到这首歌");
+        return;
+      }
+      const s = songs[0];
+      const track: Track = {
+        id: `nw-${s.id}`,
+        title: s.name || rec.title,
+        artist: Array.isArray(s.ar) ? s.ar.map((a: any) => a?.name || "").join(", ") : rec.artist || "未知",
+        album: s.al?.name || "",
+        duration: Math.floor((s.dt || 0) / 1000),
+        cover: s.al?.picUrl || "/cover-if.jpg",
+        genre: [rec.vibe_match || "Recommended"],
+        isFav: false,
+        neteaseId: s.id,
+      };
+      setQueue((q) => [track, ...(q || [])]);
+      setCurrentTrack(track);
+      setIsPlaying(true);
+      showToast(`正在播放《${track.title}》— ${track.artist}`);
+    } catch (err) {
+      console.error("playFromRecommendation error:", err);
+      showToast("播放出错了");
+    }
+  }, [showToast]);
+
+  // ---- Weather ----
   const fetchWeather = useCallback(async () => {
     try {
-      const res = await fetch('/api/trpc/weather.current?input=%7B%7D');
-      const result = await res.json();
-      const data = result.result?.data;
+      const data = await trpcGet("weather.current", { location: "101020100" });
       if (data?.success) {
         setWeather({
-          condition: data.condition as WeatherInfo['condition'],
-          temp: data.temp,
-          city: data.city,
-          text: data.text,
-          wind: data.wind,
-          humidity: data.humidity,
+          condition: (data.condition || "cloudy") as WeatherInfo["condition"],
+          temp: data.temp ?? 18,
+          city: data.city || "Shanghai",
+          text: data.text || "多云",
+          wind: data.wind || "",
+          humidity: data.humidity ?? 50,
         });
       }
-    } catch (err) { console.error('Weather fetch error:', err); }
+    } catch (err) { console.error("fetchWeather error:", err); }
   }, []);
 
-  const value: AppContextType = {
+  // Fetch weather on mount
+  useEffect(() => { fetchWeather(); }, [fetchWeather]);
+
+  // ---- Value ----
+  const value: AppState & AppActions = {
     isPlaying, currentTrack, progress, duration, volume, queue,
     djPersona, messages, isTyping, weather, toast,
-    isSpeaking, radioMode, envVibe, userTaste, currentSubtitle,
+    isSpeaking, radioMode, envVibe, currentSubtitle, isListening,
     togglePlay, setVolume, nextTrack, prevTrack, sendMessage,
     playTrack, addToQueue, removeFromQueue, reorderQueue, toggleFav,
-    showToast, searchAndPlay, speak, stopSpeaking,
-    toggleRadioMode, setMood, setIntensity, setImmersed, fetchWeather,
+    showToast, searchAndPlay, speakText, stopSpeaking,
+    toggleRadioMode, setMood, setIntensity, setImmersed,
+    startVoiceInput, stopVoiceInput, fetchWeather, playFromRecommendation,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
@@ -380,6 +523,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 export function useApp() {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useApp must be used within AppProvider');
+  if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;
 }

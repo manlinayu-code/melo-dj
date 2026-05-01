@@ -2,32 +2,33 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 import axios from "axios";
 
-const FISH_AUDIO_API_URL = "https://api.fish.audio/v1/tts";
+const FISH_API_URL = "https://api.fish.audio/v1/tts";
 
 export const fishAudioRouter = createRouter({
-  // TTS via Fish Audio API - English radio DJ voice
   speak: publicQuery
-    .input(z.object({
-      text: z.string(),
-      referenceId: z.string().optional(),
-    }))
+    .input(
+      z.object({
+        text: z.string().min(1).max(1000),
+        referenceId: z.string().optional(),
+      })
+    )
     .mutation(async ({ input }) => {
       const apiKey = process.env.FISH_AUDIO_API_KEY || "";
       if (!apiKey) {
-        return { success: false, error: "FISH_AUDIO_API_KEY not configured", audioUrl: null };
+        return { success: false, error: "FISH_AUDIO_API_KEY not configured", audioBase64: null };
       }
 
       try {
         const response = await axios.post(
-          FISH_AUDIO_API_URL,
+          FISH_API_URL,
           {
             text: input.text,
-            reference_id: input.referenceId || "",
+            reference_id: input.referenceId || undefined,
             format: "mp3",
           },
           {
             headers: {
-              "Authorization": `Bearer ${apiKey}`,
+              Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
             responseType: "arraybuffer",
@@ -35,21 +36,23 @@ export const fishAudioRouter = createRouter({
           }
         );
 
-        // Convert ArrayBuffer to base64 for tRPC transfer
-        const base64 = Buffer.from(response.data).toString("base64");
-        const audioUrl = `data:audio/mp3;base64,${base64}`;
-
-        return { success: true, audioUrl, error: null };
-      } catch (error: any) {
-        console.error("Fish Audio TTS error:", error.message);
-        return { success: false, error: error.message, audioUrl: null };
+        const audioBase64 = Buffer.from(response.data).toString("base64");
+        return { success: true, audioBase64, error: null };
+      } catch (err: any) {
+        console.error("[fishAudio] TTS error:", err?.message || err);
+        return {
+          success: false,
+          error: err?.response?.data?.message || err?.message || "TTS failed",
+          audioBase64: null,
+        };
       }
     }),
 
-  // Check if Fish Audio is available
-  status: publicQuery
-    .query(() => {
-      const hasKey = !!process.env.FISH_AUDIO_API_KEY;
-      return { available: hasKey, message: hasKey ? "Fish Audio ready" : "FISH_AUDIO_API_KEY not set" };
-    }),
+  status: publicQuery.query(() => {
+    const hasKey = !!process.env.FISH_AUDIO_API_KEY;
+    return {
+      available: hasKey,
+      message: hasKey ? "Fish Audio ready" : "FISH_AUDIO_API_KEY not set",
+    };
+  }),
 });

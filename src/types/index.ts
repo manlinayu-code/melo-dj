@@ -10,6 +10,14 @@ export interface Track {
   neteaseId?: number;
 }
 
+export interface Recommendation {
+  action: string;
+  title: string;
+  artist: string;
+  reason: string;
+  vibe_match: string;
+}
+
 export interface DJProfile {
   name: string;
   avatar: string;
@@ -21,21 +29,15 @@ export interface DJProfile {
 
 export interface ChatMessage {
   id: string;
-  sender: 'user' | 'dj';
+  sender: "user" | "dj";
   text: string;
   timestamp: number;
-  type?: 'text' | 'action';
-  recommendation?: {
-    action: string;
-    title: string;
-    artist: string;
-    reason: string;
-    vibe_match: string;
-  } | null;
+  type?: "text" | "action";
+  recommendation?: Recommendation;
 }
 
 export interface WeatherInfo {
-  condition: 'sunny' | 'cloudy' | 'rainy' | 'snowy' | 'windy' | 'foggy' | 'clear';
+  condition: "sunny" | "cloudy" | "rainy" | "snowy" | "windy" | "foggy" | "clear";
   temp: number;
   city: string;
   text: string;
@@ -50,19 +52,4 @@ export interface EnvVibe {
   immersed: boolean;
 }
 
-export interface UserTaste {
-  topArtists: { name: string; count: number }[];
-  topGenres: { name: string; count: number }[];
-  totalTracks: number;
-  totalPlays: number;
-  diversity: number;
-  dominantTime: string;
-  energy: number;
-  tasteProfile: {
-    exploratory: string;
-    loyalty: string;
-    nocturnal: boolean;
-  };
-}
-
-export type ViewType = 'home' | 'queue' | 'chat' | 'profile';
+export type ViewType = "home" | "queue" | "chat" | "profile";
