@@ -5,6 +5,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
+import { runAutoMigrate } from "./lib/autoMigrate";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -23,11 +24,13 @@ app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 export default app;
 
 if (env.isProduction) {
-  // Use dynamic import wrapped in promise to avoid top-level await in CJS
-  Promise.all([
-    import("@hono/node-server"),
-    import("./lib/vite"),
-  ]).then(([{ serve }, { serveStaticFiles }]) => {
+  // Run auto-migration first, then start server
+  runAutoMigrate().then(() => {
+    return Promise.all([
+      import("@hono/node-server"),
+      import("./lib/vite"),
+    ]);
+  }).then(([{ serve }, { serveStaticFiles }]) => {
     serveStaticFiles(app);
     const port = parseInt(process.env.PORT || "3000");
     serve({ fetch: app.fetch, port }, () => {
