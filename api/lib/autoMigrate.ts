@@ -9,7 +9,12 @@ export async function runAutoMigrate() {
 
   let conn: mysql.Connection | null = null;
   try {
-    conn = await mysql.createConnection(env.databaseUrl);
+    conn = await mysql.createConnection({
+      uri: env.databaseUrl,
+      ssl: {
+        rejectUnauthorized: true,
+      },
+    });
     console.log("[migrate] Connected to database, running auto-migration...");
 
     await conn.execute(`

@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import { env } from "../lib/env";
 import * as schema from "@db/schema";
 import * as relations from "@db/relations";
@@ -12,7 +13,13 @@ export function getDb() {
     return null;
   }
   if (!instance) {
-    instance = drizzle(env.databaseUrl, {
+    const pool = mysql.createPool({
+      uri: env.databaseUrl,
+      ssl: {
+        rejectUnauthorized: true,
+      },
+    });
+    instance = drizzle(pool, {
       schema: fullSchema,
     });
   }
