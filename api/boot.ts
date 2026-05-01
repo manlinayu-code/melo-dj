@@ -17,6 +17,7 @@ app.use("/api/trpc/*", async (c) => {
     createContext,
   });
 });
+app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 export default app;

@@ -4,6 +4,7 @@ import { chatRouter } from "./routers/chat";
 import { fishAudioRouter } from "./routers/fishAudio";
 import { weatherRouter } from "./routers/weather";
 import { playlistRouter } from "./routers/playlist";
+import { ttsRouter } from "./routers/tts";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -12,6 +13,7 @@ export const appRouter = createRouter({
   fishAudio: fishAudioRouter,
   weather: weatherRouter,
   playlist: playlistRouter,
+  tts: ttsRouter,
 });
 
 export type AppRouter = typeof appRouter;

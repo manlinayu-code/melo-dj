@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipBack, SkipForward, Heart, Volume2, CloudRain, Cloud, Sun, Snowflake, Wind, Search, Radio, Thermometer, Droplets, Zap, Mic } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Heart, Volume2, CloudRain, Cloud, Sun, Snowflake, Wind, Search, Radio, Thermometer, Droplets, Zap, Mic, ChevronRight } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import WaveformCanvas from "@/components/WaveformCanvas";
 import AudioParticles from "@/components/AudioParticles";
@@ -13,7 +13,7 @@ function formatTime(s: number) {
 
 const moodOptions = ["Moody", "Chill", "Energetic", "Melancholy", "Dreamy", "Focus"];
 
-export default function Home() {
+export default function Home({ onNavigate }: { onNavigate?: (v: "home" | "queue" | "chat" | "profile") => void }) {
   const {
     isPlaying, currentTrack, progress, duration, volume, queue, messages,
     togglePlay, setVolume, nextTrack, prevTrack, toggleFav,
@@ -225,9 +225,12 @@ export default function Home() {
         )}
 
         {/* Queue shortcut */}
-        <div className="mx-4 mt-4 flex items-center justify-between px-4 py-3 glass rounded-xl cursor-pointer">
+        <div onClick={() => onNavigate?.("queue")} className="mx-4 mt-4 flex items-center justify-between px-4 py-3 glass rounded-xl cursor-pointer hover:bg-white/[0.04] transition-colors">
           <span className="text-xs tracking-[0.1em] text-[#8a8a9a] uppercase">QUEUE</span>
-          <span className="text-xs text-[#8a8a9a]">{(queue || []).length} TRACKS</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#8a8a9a]">{(queue || []).length} TRACKS</span>
+            <ChevronRight size={14} className="text-[#4a4a5a]" />
+          </div>
         </div>
 
         {/* DJ preview */}

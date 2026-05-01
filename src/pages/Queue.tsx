@@ -13,10 +13,11 @@ function fmt(s: number) {
 export default function Queue() {
   const {
     isPlaying, currentTrack, progress, duration, queue,
-    togglePlay, nextTrack, prevTrack, toggleFav, playTrack,
+    togglePlay, nextTrack, prevTrack, toggleFav, playTrack, reorderQueue,
   } = useApp();
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
   const safeQueue = queue || [];
@@ -78,11 +79,12 @@ export default function Queue() {
             <motion.div
               key={track.id || index} layout draggable
               onDragStart={() => setDragIdx(index)}
-              onDragOver={(e) => { e.preventDefault(); if (dragIdx !== null && dragIdx !== index) { /* reorder skipped for safety */ } }}
-              onDrop={() => setDragIdx(null)}
+              onDragOver={(e) => { e.preventDefault(); if (dragIdx !== null && dragIdx !== index) setDragOverIdx(index); }}
+              onDragLeave={() => setDragOverIdx(null)}
+              onDrop={() => { if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) { reorderQueue(dragIdx, dragOverIdx); } setDragIdx(null); setDragOverIdx(null); }}
               onMouseEnter={() => setHoverIdx(index)} onMouseLeave={() => setHoverIdx(null)}
               onClick={() => playTrack(track)}
-              className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all cursor-pointer ${dragIdx === index ? "opacity-60 bg-white/5" : "hover:bg-white/[0.03]"}`}
+              className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all cursor-pointer ${dragIdx === index ? "opacity-60 bg-white/5" : dragOverIdx === index ? "bg-white/[0.06] border-t-2 border-[#00d084]/50" : "hover:bg-white/[0.03]"}`}
               style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
             >
               <div className="w-6 flex items-center justify-center shrink-0">

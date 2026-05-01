@@ -43,7 +43,7 @@ function AppContent() {
   return (
     <div className="max-w-[480px] mx-auto min-h-screen relative">
       <AnimatePresence mode="wait">
-        {currentView === 'home' && <Home key="home" />}
+        {currentView === 'home' && <Home key="home" onNavigate={setCurrentView} />}
         {currentView === 'queue' && <Queue key="queue" />}
         {currentView === 'chat' && <Chat key="chat" />}
         {currentView === 'profile' && <Profile key="profile" onNavigate={setCurrentView} />}

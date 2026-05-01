@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: melo-dj
+    runtime: docker
+    repo: https://github.com/manlinayu-code/melo-dj
+    branch: main
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: APP_ID
+        generateValue: true
+      - key: APP_SECRET
+        generateValue: true
+      - key: KIMI_API_KEY
+        sync: false
+      - key: WEATHER_API_KEY
+        sync: false
+      - key: FISH_AUDIO_API_KEY
+        sync: false
+    healthCheckPath: /health
