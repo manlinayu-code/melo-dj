@@ -1,6 +1,5 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { motion } from "framer-motion";
-import { useState, useRef, useEffect } from "react";
 import { Play, Pause, SkipForward, SkipBack, Volume2, Radio, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import type { LyricLine } from "@/context/AppContext";
