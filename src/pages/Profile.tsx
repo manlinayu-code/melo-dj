@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Headphones, Disc3, Radio, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Headphones, Disc3, Radio, Sparkles, Music, Link, Unlink, LogIn } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import type { ViewType } from "@/types";
 
@@ -25,10 +25,14 @@ const demoTaste = {
 };
 
 export default function Profile({ onNavigate }: { onNavigate: (v: ViewType) => void }) {
-  const { djPersona, showToast, searchAndPlay } = useApp();
+  const { djPersona, showToast, searchAndPlay, user, openLoginModal, neteaseSession, bindNetease, unbindNetease } = useApp();
   const [hoveredTag, setHoveredTag] = useState<string | null>(null);
   const [radarDrawn, setRadarDrawn] = useState(false);
   const [showTaste, setShowTaste] = useState(false);
+  const [showNeteaseBind, setShowNeteaseBind] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [binding, setBinding] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => setRadarDrawn(true), 300); return () => clearTimeout(t); }, []);
 
@@ -36,6 +40,19 @@ export default function Profile({ onNavigate }: { onNavigate: (v: ViewType) => v
     showToast(`Claudio 搜索「${tag}」...`);
     await searchAndPlay(tag);
     setTimeout(() => onNavigate("queue"), 800);
+  };
+
+  const handleBindNetease = async () => {
+    if (!phone.trim() || !password.trim()) return;
+    setBinding(true);
+    try {
+      await bindNetease(phone.trim(), password.trim());
+      setShowNeteaseBind(false);
+      setPhone("");
+      setPassword("");
+    } finally {
+      setBinding(false);
+    }
   };
 
   const taste = demoTaste;
@@ -61,6 +78,49 @@ export default function Profile({ onNavigate }: { onNavigate: (v: ViewType) => v
             <p className="font-display text-2xl font-bold text-[#f0f0f5]">{s.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Netease Bind */}
+      <div className="mx-4 mb-6">
+        {neteaseSession ? (
+          <div className="glass rounded-xl p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#c20c0c]/20 flex items-center justify-center">
+              <Music size={18} className="text-[#c20c0c]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-[#f0f0f5] truncate">{neteaseSession.nickname || "网易云音乐"}</p>
+              <p className="text-xs text-[#8a8a9a]">已绑定 · UID: {neteaseSession.neteaseUid}</p>
+            </div>
+            <button onClick={unbindNetease} className="p-2 rounded-full hover:bg-white/5 text-[#8a8a9a] hover:text-[#ff6b6b] transition-colors">
+              <Unlink size={14} />
+            </button>
+          </div>
+        ) : user ? (
+          <button onClick={() => setShowNeteaseBind(!showNeteaseBind)} className="w-full flex items-center justify-between px-4 py-3 rounded-xl glass border border-white/[0.08] hover:border-[#c20c0c]/30 transition-colors">
+            <div className="flex items-center gap-3"><Music size={16} className="text-[#c20c0c]" /><span className="text-sm text-[#f0f0f5]">绑定网易云音乐</span></div>
+            <span className="text-xs text-[#4a4a5a]">{showNeteaseBind ? "收起" : "绑定"}</span>
+          </button>
+        ) : (
+          <button onClick={openLoginModal} className="w-full flex items-center justify-between px-4 py-3 rounded-xl glass border border-white/[0.08] hover:border-[#00d084]/30 transition-colors">
+            <div className="flex items-center gap-3"><LogIn size={16} className="text-[#00d084]" /><span className="text-sm text-[#f0f0f5]">登录后绑定网易云音乐</span></div>
+            <span className="text-xs text-[#4a4a5a]">登录</span>
+          </button>
+        )}
+
+        <AnimatePresence>
+          {showNeteaseBind && !neteaseSession && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+              <div className="glass rounded-xl p-4 mt-2 space-y-3">
+                <p className="text-xs text-[#8a8a9a]">输入网易云音乐手机号和密码进行绑定</p>
+                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="手机号" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-[#f0f0f5] placeholder:text-[#4a4a5a] outline-none" />
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密码" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-[#f0f0f5] placeholder:text-[#4a4a5a] outline-none" />
+                <button onClick={handleBindNetease} disabled={binding} className="w-full py-2.5 rounded-xl bg-[#c20c0c] text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-[#a00a0a] transition-colors disabled:opacity-50">
+                  {binding ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Link size={14} /> 绑定</>}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Taste Analysis */}

@@ -4,6 +4,7 @@ import { AppProvider, useApp } from '@/context/AppContext';
 import DockNav from '@/components/DockNav';
 import Toast from '@/components/Toast';
 import LoginModal from '@/components/LoginModal';
+import RadioPlayer from '@/components/RadioPlayer';
 import Home from '@/pages/Home';
 import Queue from '@/pages/Queue';
 import Chat from '@/pages/Chat';
@@ -39,7 +40,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
-  const { toast, user, showLoginModal, authError, login, register, logout, closeLoginModal } = useApp();
+  const { toast, user, showLoginModal, authError, login, register, logout, closeLoginModal, radioMode, toggleRadioMode } = useApp();
 
   return (
     <div className="max-w-[480px] mx-auto min-h-screen relative">
@@ -69,6 +70,13 @@ function AppContent() {
         onRegister={register}
         error={authError}
       />
+
+      {/* Immersive Radio Mode Overlay */}
+      <AnimatePresence>
+        {radioMode && (
+          <RadioPlayer onClose={toggleRadioMode} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

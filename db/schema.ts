@@ -53,3 +53,14 @@ export const chatMessages = mysqlTable("chat_messages", {
   recommendationJson: text("recommendation_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const neteaseSessions = mysqlTable("netease_sessions", {
+  id: serial("id").primaryKey(),
+  userId: int("user_id").notNull(),
+  cookie: text("cookie").notNull(),
+  neteaseUid: varchar("netease_uid", { length: 50 }),
+  nickname: varchar("nickname", { length: 255 }),
+  avatar: varchar("avatar", { length: 500 }),
+  phone: varchar("phone", { length: 20 }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});

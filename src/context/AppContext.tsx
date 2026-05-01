@@ -58,6 +58,18 @@ interface User {
   avatar?: string | null;
 }
 
+interface NeteaseSession {
+  nickname: string;
+  avatar?: string;
+  neteaseUid: string;
+  phone?: string;
+}
+
+export interface LyricLine {
+  time: number;
+  text: string;
+}
+
 interface AppState {
   isPlaying: boolean;
   currentTrack: Track | null;
@@ -79,6 +91,10 @@ interface AppState {
   showLoginModal: boolean;
   authError: string | null;
   theme: "dark" | "light";
+  audioAnalyser: AnalyserNode | null;
+  lyrics: LyricLine[];
+  currentLyricIndex: number;
+  neteaseSession: NeteaseSession | null;
 }
 
 interface AppActions {
@@ -110,6 +126,9 @@ interface AppActions {
   openLoginModal: () => void;
   closeLoginModal: () => void;
   setTheme: (t: "dark" | "light") => void;
+  bindNetease: (phone: string, password: string) => Promise<void>;
+  unbindNetease: () => Promise<void>;
+  fetchLyrics: (neteaseId: number) => Promise<void>;
 }
 
 const defaultTracks: Track[] = [
@@ -238,23 +257,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [envVibe, setEnvVibe] = useState<EnvVibe>({ mood: "Chill", intensity: 0.5, radioMode: false, immersed: false });
   const [currentSubtitle, setCurrentSubtitle] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [audioAnalyser, setAudioAnalyser] = useState<AnalyserNode | null>(null);
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [currentLyricIndex, setCurrentLyricIndex] = useState(0);
+  const [neteaseSession, setNeteaseSession] = useState<NeteaseSession | null>(null);
 
   // ---- Refs ----
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionRef = useRef<any>(null);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // ---- Audio element ----
+  // ---- Audio element + Web Audio API ----
   useEffect(() => {
     const audio = new Audio();
     audio.crossOrigin = "anonymous";
     audioRef.current = audio;
-    const onTimeUpdate = () => setProgress(audio.currentTime);
+
+    // Initialize Web Audio API
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtx();
+      audioCtxRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      analyserRef.current = analyser;
+      setAudioAnalyser(analyser);
+
+      // Connect audio element to analyser
+      const source = ctx.createMediaElementSource(audio);
+      sourceRef.current = source;
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+    } catch (err) {
+      console.warn("Web Audio API not available:", err);
+    }
+
+    const onTimeUpdate = () => {
+      setProgress(audio.currentTime);
+      // Update lyric index
+      if (lyrics.length > 0) {
+        const idx = lyrics.findIndex((l, i) => {
+          const next = lyrics[i + 1];
+          return audio.currentTime >= l.time && (!next || audio.currentTime < next.time);
+        });
+        if (idx >= 0) setCurrentLyricIndex(idx);
+      }
+    };
     const onLoadedMetadata = () => setDuration(audio.duration || 0);
     const onEnded = () => { setIsPlaying(false); autoNext(); };
-    const onError = () => { console.error("Audio error"); setIsPlaying(false); };
+    const onError = (e: Event) => { console.error("Audio error:", e); setIsPlaying(false); showToast("音频加载失败，尝试下一首..."); };
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("ended", onEnded);
@@ -265,8 +322,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
       audio.pause();
+      audioCtxRef.current?.close();
     };
-  }, []);
+  }, [lyrics.length]);
 
   // ---- Play/Pause sync ----
   useEffect(() => {
@@ -286,24 +344,109 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const loadTrackUrl = useCallback(async (track: Track) => {
     if (!track.neteaseId) return;
     try {
+      // Try to resume AudioContext (browsers suspend it until user gesture)
+      if (audioCtxRef.current?.state === "suspended") {
+        await audioCtxRef.current.resume();
+      }
+
       const data = await trpcGet("netease.songUrl", { id: track.neteaseId });
-      const url = data?.data?.[0]?.url;
-      if (url && audioRef.current) {
-        audioRef.current.src = url;
+      const songs = data?.data || [];
+      // Find first valid URL, prefer higher bitrate
+      const sorted = [...songs].sort((a: any, b: any) => (b.br || 0) - (a.br || 0));
+      const valid = sorted.find((s: any) => s?.url);
+
+      if (valid?.url && audioRef.current) {
+        audioRef.current.src = valid.url;
         audioRef.current.volume = volume;
-        if (isPlaying) audioRef.current.play().catch(() => {});
+        if (isPlaying) {
+          audioRef.current.play().catch((err) => {
+            console.error("Play error:", err);
+            // Auto-pause if autoplay blocked
+            setIsPlaying(false);
+          });
+        }
+      } else {
+        showToast("这首歌暂时无法播放，试试下一首");
       }
     } catch (err) {
       console.error("loadTrackUrl error:", err);
+      showToast("音频加载失败");
     }
   }, [volume, isPlaying]);
 
-  // When currentTrack changes, load URL
+  // ---- Fetch lyrics ----
+  const fetchLyrics = useCallback(async (neteaseId: number) => {
+    if (!neteaseId) return;
+    try {
+      const data = await trpcGet("netease.lyric", { id: neteaseId });
+      const lrcText = data?.lrc?.lyric || data?.nolyric?.lyric || "";
+      if (lrcText) {
+        const parsed = parseLRC(lrcText);
+        setLyrics(parsed);
+        setCurrentLyricIndex(0);
+      } else {
+        setLyrics([]);
+      }
+    } catch (err) {
+      console.error("fetchLyrics error:", err);
+      setLyrics([]);
+    }
+  }, []);
+
+  // ---- Netease bind/unbind ----
+  const bindNetease = useCallback(async (phone: string, password: string) => {
+    try {
+      const data = await trpcPost("netease.loginPhone", { phone, password });
+      if (data?.success) {
+        setNeteaseSession({
+          nickname: data.profile?.nickname,
+          avatar: data.profile?.avatar,
+          neteaseUid: String(data.profile?.uid || ""),
+          phone,
+        });
+        showToast(`已绑定网易云：${data.profile?.nickname}`);
+      } else {
+        showToast(data?.error || "网易云登录失败");
+      }
+    } catch (err: any) {
+      showToast(err.message || "网易云登录失败");
+    }
+  }, []);
+
+  const unbindNetease = useCallback(async () => {
+    try {
+      await trpcPost("netease.logoutNetease", {});
+      setNeteaseSession(null);
+      showToast("已解绑网易云账号");
+    } catch {
+      showToast("解绑失败");
+    }
+  }, []);
+
+  // Load netease session on mount
+  useEffect(() => {
+    if (!user) { setNeteaseSession(null); return; }
+    trpcGet("netease.mySession")
+      .then((data) => {
+        if (data?.session) {
+          setNeteaseSession({
+            nickname: data.session.nickname,
+            avatar: data.session.avatar,
+            neteaseUid: data.session.neteaseUid,
+            phone: data.session.phone,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [user]);
+
+  // When currentTrack changes, load URL + lyrics
   useEffect(() => {
     if (currentTrack) {
       setProgress(0);
       setDuration(0);
       loadTrackUrl(currentTrack);
+      fetchLyrics(currentTrack.neteaseId || 0);
       // Save play history if logged in
       if (user) {
         trpcPost("playlist.savePlay", {
@@ -647,15 +790,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     djPersona, messages, isTyping, weather, toast,
     isSpeaking, radioMode, envVibe, currentSubtitle, isListening,
     user, showLoginModal, authError, theme,
+    audioAnalyser, lyrics, currentLyricIndex, neteaseSession,
     togglePlay, setVolume, nextTrack, prevTrack, sendMessage,
     playTrack, addToQueue, removeFromQueue, reorderQueue, toggleFav,
     showToast, searchAndPlay, speakText, stopSpeaking,
     toggleRadioMode, setMood, setIntensity, setImmersed,
     startVoiceInput, stopVoiceInput, fetchWeather, playFromRecommendation,
     login, register, logout, openLoginModal, closeLoginModal, setTheme,
+    bindNetease, unbindNetease, fetchLyrics,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+/** Parse LRC format lyrics */
+function parseLRC(lrcText: string): LyricLine[] {
+  const lines: LyricLine[] = [];
+  const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
+  for (const line of lrcText.split("\n")) {
+    const match = line.match(timeRegex);
+    if (match) {
+      const min = parseInt(match[1], 10);
+      const sec = parseInt(match[2], 10);
+      const msRaw = match[3];
+      const ms = parseInt(msRaw.padEnd(3, "0"), 10);
+      const time = min * 60 + sec + ms / 1000;
+      const text = match[4].trim();
+      if (text) lines.push({ time, text });
+    }
+  }
+  return lines.sort((a, b) => a.time - b.time);
 }
 
 export function useApp() {
