@@ -8,10 +8,14 @@ import { fileURLToPath } from "url";
 type App = Hono<{ Bindings: HttpBindings }>;
 
 function getCurrentDir(): string {
-  // In CJS, __dirname is available
+  // In CJS, __dirname is available (production bundle)
   if (typeof __dirname !== "undefined") return __dirname;
-  // In ESM, derive from import.meta.url
-  return path.dirname(fileURLToPath(import.meta.url));
+  // Fallback for ESM or bundled environments
+  try {
+    return path.dirname(fileURLToPath((import.meta as any).url));
+  } catch {
+    return process.cwd();
+  }
 }
 
 function findPublicDir(): string {

@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { serve } from "@hono/node-server";
+import { serveStaticFiles } from "./lib/vite";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -23,21 +25,34 @@ app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 export default app;
 
+console.log(`[boot] Starting... NODE_ENV=${process.env.NODE_ENV}, isProduction=${env.isProduction}`);
+
 if (env.isProduction) {
-  // Run auto-migration first, then start server
-  runAutoMigrate().then(() => {
-    return Promise.all([
-      import("@hono/node-server"),
-      import("./lib/vite"),
-    ]);
-  }).then(([{ serve }, { serveStaticFiles }]) => {
-    serveStaticFiles(app);
-    const port = parseInt(process.env.PORT || "3000");
-    serve({ fetch: app.fetch, port }, () => {
-      console.log(`Server running on http://localhost:${port}/`);
-    });
-  }).catch((err) => {
-    console.error("Failed to start server:", err);
+  console.log("[boot] Production mode detected, starting server...");
+
+  process.on("uncaughtException", (err) => {
+    console.error("[boot] Uncaught Exception:", err);
     process.exit(1);
   });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[boot] Unhandled Rejection:", reason);
+    process.exit(1);
+  });
+
+  runAutoMigrate()
+    .then(() => {
+      console.log("[boot] Migration step done, serving static files...");
+      serveStaticFiles(app);
+      const port = parseInt(process.env.PORT || "3000");
+      console.log(`[boot] Starting HTTP server on port ${port}...`);
+      serve({ fetch: app.fetch, port }, (info) => {
+        console.log(`[boot] Server running on port ${(info as any)?.port || port}`);
+      });
+    })
+    .catch((err) => {
+      console.error("[boot] Failed to start server:", err);
+      process.exit(1);
+    });
+} else {
+  console.log("[boot] Not production, skipping server start");
 }
