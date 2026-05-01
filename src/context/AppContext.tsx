@@ -159,6 +159,25 @@ const defaultWeather: WeatherInfo = {
   humidity: 78,
 };
 
+/** Parse LRC format lyrics */
+function parseLRC(lrcText: string): LyricLine[] {
+  const lines: LyricLine[] = [];
+  const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
+  for (const line of lrcText.split("\n")) {
+    const match = line.match(timeRegex);
+    if (match) {
+      const min = parseInt(match[1], 10);
+      const sec = parseInt(match[2], 10);
+      const msRaw = match[3];
+      const ms = parseInt(msRaw.padEnd(3, "0"), 10);
+      const time = min * 60 + sec + ms / 1000;
+      const text = match[4].trim();
+      if (text) lines.push({ time, text });
+    }
+  }
+  return lines.sort((a, b) => a.time - b.time);
+}
+
 const AppContext = createContext<(AppState & AppActions) | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -850,25 +869,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
-}
-
-/** Parse LRC format lyrics */
-function parseLRC(lrcText: string): LyricLine[] {
-  const lines: LyricLine[] = [];
-  const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
-  for (const line of lrcText.split("\n")) {
-    const match = line.match(timeRegex);
-    if (match) {
-      const min = parseInt(match[1], 10);
-      const sec = parseInt(match[2], 10);
-      const msRaw = match[3];
-      const ms = parseInt(msRaw.padEnd(3, "0"), 10);
-      const time = min * 60 + sec + ms / 1000;
-      const text = match[4].trim();
-      if (text) lines.push({ time, text });
-    }
-  }
-  return lines.sort((a, b) => a.time - b.time);
 }
 
 export function useApp() {

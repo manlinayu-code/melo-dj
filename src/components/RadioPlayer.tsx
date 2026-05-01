@@ -2,7 +2,11 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { motion } from "framer-motion";
 import { Play, Pause, SkipForward, SkipBack, Volume2, Radio, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import type { LyricLine } from "@/context/AppContext";
+// LyricLine type inlined to avoid import issues
+interface LyricLine {
+  time: number;
+  text: string;
+}
 
 export default function RadioPlayer({ onClose }: { onClose: () => void }) {
   const {
@@ -208,7 +212,7 @@ export default function RadioPlayer({ onClose }: { onClose: () => void }) {
             className="h-full overflow-y-auto px-6 py-8 space-y-4 scrollbar-hide"
           >
             {lyrics.length > 0 ? (
-              lyrics.map((line: LyricLine, idx: number) => {
+              lyrics.map((line, idx: number) => {
                 const isActive = idx === currentLyricIndex;
                 const isPast = idx < currentLyricIndex;
                 return (
