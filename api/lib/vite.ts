@@ -3,13 +3,39 @@ import type { HttpBindings } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 type App = Hono<{ Bindings: HttpBindings }>;
 
-export function serveStaticFiles(app: App) {
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+function getCurrentDir(): string {
+  // In CJS, __dirname is available
+  if (typeof __dirname !== "undefined") return __dirname;
+  // In ESM, derive from import.meta.url
+  return path.dirname(fileURLToPath(import.meta.url));
+}
 
-  app.use("*", serveStatic({ root: "./dist/public" }));
+function findPublicDir(): string {
+  const currentDir = getCurrentDir();
+  
+  // Production: boot.cjs is in dist/, public is dist/public/
+  const prodPath = path.resolve(currentDir, "public");
+  if (fs.existsSync(prodPath)) return prodPath;
+  
+  // Development: vite.ts is in api/lib/, need to go up to dist/public/
+  const devPath = path.resolve(currentDir, "../../dist/public");
+  if (fs.existsSync(devPath)) return devPath;
+  
+  // Fallback: try cwd + dist/public
+  const cwdPath = path.resolve(process.cwd(), "dist/public");
+  if (fs.existsSync(cwdPath)) return cwdPath;
+  
+  return prodPath;
+}
+
+export function serveStaticFiles(app: App) {
+  const distPath = findPublicDir();
+
+  app.use("*", serveStatic({ root: distPath }));
 
   app.notFound((c) => {
     const accept = c.req.header("accept") ?? "";

@@ -22,12 +22,18 @@ app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 export default app;
 
 if (env.isProduction) {
-  const { serve } = await import("@hono/node-server");
-  const { serveStaticFiles } = await import("./lib/vite");
-  serveStaticFiles(app);
-
-  const port = parseInt(process.env.PORT || "3000");
-  serve({ fetch: app.fetch, port }, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  // Use dynamic import wrapped in promise to avoid top-level await in CJS
+  Promise.all([
+    import("@hono/node-server"),
+    import("./lib/vite"),
+  ]).then(([{ serve }, { serveStaticFiles }]) => {
+    serveStaticFiles(app);
+    const port = parseInt(process.env.PORT || "3000");
+    serve({ fetch: app.fetch, port }, () => {
+      console.log(`Server running on http://localhost:${port}/`);
+    });
+  }).catch((err) => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
   });
 }
