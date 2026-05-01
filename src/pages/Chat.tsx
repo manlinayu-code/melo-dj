@@ -42,6 +42,36 @@ function HighlightText({ text }: { text: string }) {
   return <>{parts}</>;
 }
 
+/** Typewriter effect hook */
+function useTypewriter(text: string, speed = 25, enabled = true) {
+  const [displayed, setDisplayed] = useState(enabled ? "" : text);
+  const [done, setDone] = useState(!enabled);
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayed(text);
+      setDone(true);
+      return;
+    }
+    setDisplayed("");
+    setDone(false);
+    let i = 0;
+    const chars = text.split("");
+    const interval = setInterval(() => {
+      if (i < chars.length) {
+        setDisplayed(chars.slice(0, i + 1).join(""));
+        i++;
+      } else {
+        setDone(true);
+        clearInterval(interval);
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, speed, enabled]);
+
+  return { displayed, done };
+}
+
 export default function Chat() {
   const {
     messages, isTyping, isSpeaking, sendMessage, djPersona, radioMode,
@@ -51,10 +81,19 @@ export default function Chat() {
 
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [typedMessages, setTypedMessages] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isTyping]);
+
+  // Track which messages have been typewritten
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.sender === "dj" && !typedMessages.has(lastMsg.id)) {
+      setTypedMessages((prev) => new Set(prev).add(lastMsg.id));
+    }
+  }, [messages]);
 
   const handleSend = () => {
     if (!input.trim() || isTyping) return;
@@ -62,7 +101,6 @@ export default function Chat() {
     setInput("");
   };
 
-  // Safe message list
   const msgList = messages || [];
 
   return (
@@ -117,12 +155,19 @@ export default function Chat() {
           if (!msg) return null;
           const isDj = msg.sender === "dj";
           const isLatest = index === msgList.length - 1 && isDj;
+          const showTypewriter = isDj && typedMessages.has(msg.id) && !isTyping && index === msgList.length - 1;
+          const displayText = showTypewriter ? msg.text : msg.text;
+
           return (
             <motion.div key={msg.id || index} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${isDj ? "" : "justify-end"}`}>
               {isDj && <img src={djPersona?.avatar} alt="C" className="w-8 h-8 rounded-full object-cover shrink-0 mt-1" />}
               <div className="max-w-[80%]">
                 <div className={`px-4 py-3 rounded-2xl text-[15px] leading-[1.7] ${isDj ? "bg-[#161622]/60 border border-white/5 text-[#f0f0f5]/90" : "bg-[#00d084]/15 border border-[#00d084]/20 text-[#f0f0f5]"}`}>
-                  <span className="whitespace-pre-wrap"><HighlightText text={msg.text || ""} /></span>
+                  {isDj && showTypewriter ? (
+                    <TypewriterMessage text={msg.text || ""} />
+                  ) : (
+                    <span className="whitespace-pre-wrap"><HighlightText text={msg.text || ""} /></span>
+                  )}
                   {isLatest && isTyping && <span className="animate-[blink-cursor_1s_step-end_infinite] ml-0.5">|</span>}
                 </div>
                 {/* Recommendation card */}
@@ -142,7 +187,7 @@ export default function Chat() {
                 )}
                 {/* Speak button for DJ messages */}
                 {isDj && msg.text && (
-                  <button onClick={() => isSpeaking ? stopSpeaking() : speakText(msg.text)} className="mt-1 flex items-center gap-1 text-[10px] text-[#4a4a5a] hover:text-indigo-400 transition-colors">
+                  <button onClick={() => isSpeaking && isLatest ? stopSpeaking() : speakText(msg.text)} className="mt-1 flex items-center gap-1 text-[10px] text-[#4a4a5a] hover:text-indigo-400 transition-colors">
                     {isSpeaking && isLatest ? <VolumeX size={10} /> : <Volume2 size={10} />}
                     {isSpeaking && isLatest ? "停止" : "朗读"}
                   </button>
@@ -191,5 +236,34 @@ export default function Chat() {
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/** Typewriter component that animates text character by character */
+function TypewriterMessage({ text, speed = 25 }: { text: string; speed?: number }) {
+  const [displayed, setDisplayed] = useState("");
+
+  useEffect(() => {
+    let i = 0;
+    const chars = text.split("");
+    setDisplayed("");
+    const interval = setInterval(() => {
+      if (i < chars.length) {
+        setDisplayed(chars.slice(0, i + 1).join(""));
+        i++;
+      } else {
+        clearInterval(interval);
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, speed]);
+
+  return (
+    <span className="whitespace-pre-wrap">
+      <HighlightText text={displayed} />
+      {displayed.length < text.length && (
+        <span className="inline-block w-0.5 h-4 bg-[#00d084] ml-0.5 animate-[blink-cursor_1s_step-end_infinite] align-middle" />
+      )}
+    </span>
   );
 }

@@ -1,0 +1,83 @@
+import { z } from "zod";
+import { createRouter, publicQuery } from "../middleware";
+import { getDb } from "../queries/connection";
+import { users } from "@db/schema";
+import { eq } from "drizzle-orm";
+import { pbkdf2Sync, randomBytes } from "crypto";
+import { signJWT } from "../lib/jwt";
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = pbkdf2Sync(password, salt, 100000, 64, "sha256").toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, stored: string): boolean {
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const derived = pbkdf2Sync(password, salt, 100000, 64, "sha256").toString("hex");
+  return derived === hash;
+}
+
+export const authRouter = createRouter({
+  register: publicQuery
+    .input(
+      z.object({
+        name: z.string().min(1).max(50),
+        password: z.string().min(4).max(100),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      if (!db) return { success: false, error: "Database not available", token: null };
+
+      const existing = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
+      if (existing.length > 0) {
+        return { success: false, error: "Username already exists", token: null };
+      }
+
+      const hashed = hashPassword(input.password);
+      const result = await db.insert(users).values({
+        name: input.name,
+        password: hashed,
+        avatar: `/melo-avatar.jpg`,
+      });
+      const userId = Number(result[0].insertId);
+      const token = signJWT({ userId, name: input.name });
+      return { success: true, token, user: { id: userId, name: input.name } };
+    }),
+
+  login: publicQuery
+    .input(
+      z.object({
+        name: z.string().min(1),
+        password: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      if (!db) return { success: false, error: "Database not available", token: null };
+
+      const rows = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
+      if (rows.length === 0) {
+        return { success: false, error: "User not found", token: null };
+      }
+
+      const user = rows[0];
+      if (!user.password || !verifyPassword(input.password, user.password)) {
+        return { success: false, error: "Invalid password", token: null };
+      }
+
+      const token = signJWT({ userId: user.id, name: user.name });
+      return { success: true, token, user: { id: user.id, name: user.name || "" } };
+    }),
+
+  me: publicQuery.query(async ({ ctx }) => {
+    const db = getDb();
+    if (!db || !ctx.user) return { user: null };
+    const rows = await db.select().from(users).where(eq(users.id, ctx.user.userId)).limit(1);
+    if (rows.length === 0) return { user: null };
+    const user = rows[0];
+    return { user: { id: user.id, name: user.name, avatar: user.avatar, location: user.location } };
+  }),
+});

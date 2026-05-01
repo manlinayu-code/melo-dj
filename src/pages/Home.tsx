@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipBack, SkipForward, Heart, Volume2, CloudRain, Cloud, Sun, Snowflake, Wind, Search, Radio, Thermometer, Droplets, Zap, Mic, ChevronRight } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Heart, Volume2, CloudRain, Cloud, Sun as SunIcon, Snowflake, Wind, Search, Radio, Thermometer, Droplets, Zap, Mic, ChevronRight, User, LogIn, Moon } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import WaveformCanvas from "@/components/WaveformCanvas";
 import AudioParticles from "@/components/AudioParticles";
@@ -20,6 +20,7 @@ export default function Home({ onNavigate }: { onNavigate?: (v: "home" | "queue"
     weather, djPersona, toggleRadioMode, radioMode, envVibe,
     setMood, setIntensity, setImmersed, searchAndPlay, startVoiceInput,
     isSpeaking, isListening,
+    user, openLoginModal, logout, theme, setTheme,
   } = useApp();
 
   const [time, setTime] = useState(new Date());
@@ -79,6 +80,21 @@ export default function Home({ onNavigate }: { onNavigate?: (v: "home" | "queue"
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#8a8a9a]">{user.name}</span>
+                <button onClick={logout} className="p-1.5 rounded-full glass text-[#8a8a9a] hover:text-[#ff6b6b] transition-colors">
+                  <LogIn size={14} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={openLoginModal} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass text-xs text-[#8a8a9a] hover:text-[#00d084] transition-colors">
+                <User size={12} /> 登录
+              </button>
+            )}
+            <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="p-1.5 rounded-full glass text-[#8a8a9a] hover:text-[#f0c040] transition-colors">
+              {theme === "dark" ? <SunIcon size={14} /> : <Moon size={14} />}
+            </button>
             <button onClick={toggleRadioMode} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all ${radioMode ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "glass text-[#8a8a9a]"}`}>
               <Radio size={12} />{radioMode ? "ON AIR" : "Radio"}
             </button>

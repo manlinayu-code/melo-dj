@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, publicQuery, authedQuery } from "../middleware";
+import { getDb } from "../queries/connection";
+import { chatMessages } from "@db/schema";
+import { eq, desc } from "drizzle-orm";
 import axios from "axios";
 
 const KIMI_API_URL = "https://api.moonshot.cn/v1/chat/completions";
@@ -50,7 +53,7 @@ export const chatRouter = createRouter({
           .optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const env = {
         time: input.env?.time || "23:15",
         weather: input.env?.weather || "clear",
@@ -164,6 +167,28 @@ ${env.radioMode ? "RADIO MODE ON: Reply in English only. Speak like a late-night
           }
         }
 
+        // Save to database if user is logged in
+        const db = getDb();
+        if (db && ctx.user) {
+          try {
+            await db.insert(chatMessages).values({
+              userId: ctx.user.userId,
+              sender: "user",
+              text: input.text,
+              type: "text",
+            });
+            await db.insert(chatMessages).values({
+              userId: ctx.user.userId,
+              sender: "dj",
+              text: content,
+              type: recommendation ? "action" : "text",
+              recommendationJson: recommendation ? JSON.stringify(recommendation) : null,
+            });
+          } catch (err) {
+            console.error("[chat] failed to save message:", err);
+          }
+        }
+
         return {
           text: content,
           recommendation,
@@ -179,5 +204,28 @@ ${env.radioMode ? "RADIO MODE ON: Reply in English only. Speak like a late-night
           radioMode: env.radioMode,
         };
       }
+    }),
+
+  history: authedQuery
+    .input(z.object({ limit: z.number().optional().default(50) }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      if (!db) return { messages: [] };
+      const rows = await db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.userId, ctx.user.userId))
+        .orderBy(desc(chatMessages.createdAt))
+        .limit(input.limit);
+      return {
+        messages: rows.reverse().map((r) => ({
+          id: `db-${r.id}`,
+          sender: r.sender,
+          text: r.text,
+          timestamp: new Date(r.createdAt).getTime(),
+          type: r.type,
+          recommendation: r.recommendationJson ? JSON.parse(r.recommendationJson) : undefined,
+        })),
+      };
     }),
 });

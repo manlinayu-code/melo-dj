@@ -2,28 +2,35 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { Track, DJProfile, ChatMessage, WeatherInfo, EnvVibe } from "@/types";
 
 // ====== Safe API helper ======
-// tRPC GET:  /api/trpc/procedureName?input={"json":{...}}
-// tRPC POST: /api/trpc/procedureName  body:{"json":{...}}
+function getToken() {
+  return localStorage.getItem("melo_token");
+}
+
 async function trpcGet(procedure: string, input?: Record<string, unknown>) {
   let url = `/api/trpc/${procedure}`;
   if (input) {
     url += `?input=${encodeURIComponent(JSON.stringify({ json: input }))}`;
   }
-  const res = await fetch(url, { credentials: "include" });
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(url, { credentials: "include", headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
   const json = await res.json();
-  // tRPC response: { result: { data: ... } } or { error: ... }
   if (json.error) throw new Error(json.error.message || "tRPC error");
   return json.result?.data;
 }
 
 async function trpcPost(procedure: string, input: Record<string, unknown>) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`/api/trpc/${procedure}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     credentials: "include",
     body: JSON.stringify({ json: input }),
   });
@@ -45,6 +52,12 @@ interface Recommendation {
   vibe_match: string;
 }
 
+interface User {
+  id: number;
+  name: string;
+  avatar?: string | null;
+}
+
 interface AppState {
   isPlaying: boolean;
   currentTrack: Track | null;
@@ -62,6 +75,10 @@ interface AppState {
   envVibe: EnvVibe;
   currentSubtitle: string;
   isListening: boolean;
+  user: User | null;
+  showLoginModal: boolean;
+  authError: string | null;
+  theme: "dark" | "light";
 }
 
 interface AppActions {
@@ -87,6 +104,12 @@ interface AppActions {
   stopVoiceInput: () => void;
   fetchWeather: () => Promise<void>;
   playFromRecommendation: (rec: Recommendation) => Promise<void>;
+  login: (name: string, password: string) => Promise<void>;
+  register: (name: string, password: string) => Promise<void>;
+  logout: () => void;
+  openLoginModal: () => void;
+  closeLoginModal: () => void;
+  setTheme: (t: "dark" | "light") => void;
 }
 
 const defaultTracks: Track[] = [
@@ -118,6 +141,84 @@ const defaultWeather: WeatherInfo = {
 const AppContext = createContext<(AppState & AppActions) | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  // ---- Theme ----
+  const [theme, setThemeState] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("melo_theme") as "dark" | "light" | null;
+    return saved || "dark";
+  });
+
+  const setTheme = useCallback((t: "dark" | "light") => {
+    setThemeState(t);
+    localStorage.setItem("melo_theme", t);
+    document.documentElement.setAttribute("data-theme", t);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  // ---- Auth ----
+  const [user, setUser] = useState<User | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const loadUser = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const data = await trpcGet("auth.me");
+      if (data?.user) {
+        setUser(data.user);
+      }
+    } catch {
+      localStorage.removeItem("melo_token");
+    }
+  }, []);
+
+  useEffect(() => { loadUser(); }, [loadUser]);
+
+  const login = useCallback(async (name: string, password: string) => {
+    setAuthError(null);
+    try {
+      const data = await trpcPost("auth.login", { name, password });
+      if (data?.success && data.token) {
+        localStorage.setItem("melo_token", data.token);
+        setUser(data.user);
+        setShowLoginModal(false);
+        // Load history after login
+        loadChatHistory();
+      } else {
+        setAuthError(data?.error || "登录失败");
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "登录失败");
+    }
+  }, []);
+
+  const register = useCallback(async (name: string, password: string) => {
+    setAuthError(null);
+    try {
+      const data = await trpcPost("auth.register", { name, password });
+      if (data?.success && data.token) {
+        localStorage.setItem("melo_token", data.token);
+        setUser(data.user);
+        setShowLoginModal(false);
+      } else {
+        setAuthError(data?.error || "注册失败");
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "注册失败");
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem("melo_token");
+    setUser(null);
+  }, []);
+
+  const openLoginModal = useCallback(() => { setAuthError(null); setShowLoginModal(true); }, []);
+  const closeLoginModal = useCallback(() => { setShowLoginModal(false); }, []);
+
   // ---- State ----
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(defaultTracks[0]);
@@ -203,6 +304,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setProgress(0);
       setDuration(0);
       loadTrackUrl(currentTrack);
+      // Save play history if logged in
+      if (user) {
+        trpcPost("playlist.savePlay", {
+          songId: currentTrack.id,
+          title: currentTrack.title,
+          artist: currentTrack.artist,
+          album: currentTrack.album,
+          cover: currentTrack.cover,
+          duration: currentTrack.duration,
+        }).catch(() => {});
+      }
     }
   }, [currentTrack?.id]);
 
@@ -291,11 +403,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---- TTS (Browser + Fish.Audio fallback) ----
   const speakText = useCallback((text: string) => {
     if (!text) return;
-    // Stop any current TTS
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
 
-    // Try Fish.Audio first
     const tryFishAudio = async () => {
       try {
         const data = await trpcPost("fishAudio.speak", { text: text.slice(0, 500) });
@@ -351,6 +461,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setIntensity = useCallback((intensity: number) => setEnvVibe((v) => ({ ...v, intensity })), []);
   const setImmersed = useCallback((immersed: boolean) => setEnvVibe((v) => ({ ...v, immersed })), []);
 
+  // ---- Load chat history ----
+  const loadChatHistory = useCallback(async () => {
+    try {
+      const data = await trpcGet("chat.history", { limit: 50 });
+      if (data?.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+        const history: ChatMessage[] = data.messages.map((m: any) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          timestamp: m.timestamp,
+          type: m.type,
+          recommendation: m.recommendation,
+        }));
+        // Keep welcome messages if no history
+        setMessages((prev) => history.length > 0 ? history : prev);
+      }
+    } catch (err) {
+      console.error("loadChatHistory error:", err);
+    }
+  }, []);
+
+  // Load history when user changes
+  useEffect(() => {
+    if (user) {
+      loadChatHistory();
+    }
+  }, [user, loadChatHistory]);
+
   // ---- Send Message (AI Chat) ----
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -377,7 +515,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           intensity: envVibe?.intensity ?? 0.5,
           userGenres: [],
           userArtists: [],
-          recentPlays: [],
+          recentPlays: currentTrack ? [currentTrack.title] : [],
           radioMode: radioMode || false,
         },
       });
@@ -394,14 +532,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       setMessages((msgs) => [...msgs, djMsg]);
 
-      // Radio mode subtitle
       if (radioMode && result.text) {
         setCurrentSubtitle(result.text);
         if (subtitleTimer.current) clearTimeout(subtitleTimer.current);
         subtitleTimer.current = setTimeout(() => setCurrentSubtitle(""), 10000);
       }
 
-      // Auto-speak in radio mode
       if (radioMode && result.text) speakText(result.text);
     } catch (err: any) {
       console.error("sendMessage error:", err);
@@ -415,7 +551,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsTyping(false);
     }
-  }, [messages, weather, envVibe, radioMode, speakText]);
+  }, [messages, weather, envVibe, radioMode, speakText, currentTrack]);
 
   // ---- Search & Play ----
   const searchAndPlay = useCallback(async (query: string) => {
@@ -503,7 +639,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) { console.error("fetchWeather error:", err); }
   }, []);
 
-  // Fetch weather on mount
   useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
   // ---- Value ----
@@ -511,11 +646,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isPlaying, currentTrack, progress, duration, volume, queue,
     djPersona, messages, isTyping, weather, toast,
     isSpeaking, radioMode, envVibe, currentSubtitle, isListening,
+    user, showLoginModal, authError, theme,
     togglePlay, setVolume, nextTrack, prevTrack, sendMessage,
     playTrack, addToQueue, removeFromQueue, reorderQueue, toggleFav,
     showToast, searchAndPlay, speakText, stopSpeaking,
     toggleRadioMode, setMood, setIntensity, setImmersed,
     startVoiceInput, stopVoiceInput, fetchWeather, playFromRecommendation,
+    login, register, logout, openLoginModal, closeLoginModal, setTheme,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, publicQuery, authedQuery } from "../middleware";
+import { getDb } from "../queries/connection";
+import { playHistory } from "@db/schema";
+import { eq, desc } from "drizzle-orm";
 
-// Playlist analysis using Netease user playlist data
 export const playlistRouter = createRouter({
   // Analyze user's music taste from their playlist data
   analyze: publicQuery
@@ -15,8 +17,6 @@ export const playlistRouter = createRouter({
     }))
     .query(({ input }) => {
       const tracks = input.tracks || [];
-
-      // Extract artist frequency
       const artistCounts: Record<string, number> = {};
       const genreCounts: Record<string, number> = {};
       const hourCounts: Record<number, number> = {};
@@ -26,7 +26,6 @@ export const playlistRouter = createRouter({
         artists.forEach((a) => {
           artistCounts[a] = (artistCounts[a] || 0) + (t.playCount || 1);
         });
-
         if (t.genre) {
           const genres = t.genre.split(/[,/、 ]/);
           genres.forEach((g) => {
@@ -45,11 +44,9 @@ export const playlistRouter = createRouter({
         .slice(0, 8)
         .map(([name, count]) => ({ name, count }));
 
-      // Calculate taste profile (0-1 scale)
       const totalPlays = tracks.reduce((sum, t) => sum + (t.playCount || 1), 0);
       const diversity = tracks.length > 0 ? Object.keys(artistCounts).length / tracks.length : 0;
 
-      // Time preference analysis
       const timeProfile = {
         nightOwl: hourCounts[0] + hourCounts[1] + hourCounts[2] + hourCounts[3] || 0,
         morning: hourCounts[7] + hourCounts[8] + hourCounts[9] || 0,
@@ -60,7 +57,6 @@ export const playlistRouter = createRouter({
       const dominantTime = Object.entries(timeProfile)
         .sort((a, b) => b[1] - a[1])[0]?.[0] || 'evening';
 
-      // Energy estimation based on genre
       const energyGenres = ['rock', 'electronic', 'hip-hop', 'metal', 'dance', 'edm', 'trap'];
       const chillGenres = ['classical', 'jazz', 'ambient', 'lo-fi', 'folk', 'acoustic', 'piano'];
 
@@ -84,6 +80,65 @@ export const playlistRouter = createRouter({
           loyalty: topArtists[0]?.count / (totalPlays || 1) > 0.2 ? 'high' : 'medium',
           nocturnal: dominantTime === 'nightOwl',
         },
+      };
+    }),
+
+  savePlay: authedQuery
+    .input(
+      z.object({
+        songId: z.string(),
+        title: z.string(),
+        artist: z.string(),
+        album: z.string().optional(),
+        cover: z.string().optional(),
+        duration: z.number().optional(),
+        completed: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      if (!db) return { success: false };
+      try {
+        await db.insert(playHistory).values({
+          userId: ctx.user.userId,
+          songId: input.songId,
+          title: input.title,
+          artist: input.artist,
+          album: input.album || null,
+          cover: input.cover || null,
+          duration: input.duration || null,
+          completed: input.completed ?? false,
+        });
+        return { success: true };
+      } catch (err) {
+        console.error("[playlist/savePlay] error:", err);
+        return { success: false };
+      }
+    }),
+
+  history: authedQuery
+    .input(z.object({ limit: z.number().optional().default(50) }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      if (!db) return { history: [] };
+      const rows = await db
+        .select()
+        .from(playHistory)
+        .where(eq(playHistory.userId, ctx.user.userId))
+        .orderBy(desc(playHistory.playedAt))
+        .limit(input.limit);
+      return {
+        history: rows.map((r) => ({
+          id: r.id,
+          songId: r.songId,
+          title: r.title,
+          artist: r.artist,
+          album: r.album,
+          cover: r.cover,
+          duration: r.duration,
+          playedAt: new Date(r.playedAt).getTime(),
+          completed: r.completed,
+        })),
       };
     }),
 });

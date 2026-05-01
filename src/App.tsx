@@ -3,6 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import { AppProvider, useApp } from '@/context/AppContext';
 import DockNav from '@/components/DockNav';
 import Toast from '@/components/Toast';
+import LoginModal from '@/components/LoginModal';
 import Home from '@/pages/Home';
 import Queue from '@/pages/Queue';
 import Chat from '@/pages/Chat';
@@ -38,10 +39,18 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
-  const { toast } = useApp();
+  const { toast, user, showLoginModal, authError, login, register, logout, closeLoginModal } = useApp();
 
   return (
     <div className="max-w-[480px] mx-auto min-h-screen relative">
+      {/* User badge */}
+      {user && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full glass text-xs">
+          <span className="text-[#f0f0f5]">{user.name}</span>
+          <button onClick={logout} className="text-[#4a4a5a] hover:text-[#ff6b6b] transition-colors">退出</button>
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
         {currentView === 'home' && <Home key="home" onNavigate={setCurrentView} />}
         {currentView === 'queue' && <Queue key="queue" />}
@@ -52,6 +61,14 @@ function AppContent() {
       <DockNav current={currentView} onChange={setCurrentView} />
 
       {toast && <Toast message={toast.message} visible={toast.visible} />}
+
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={closeLoginModal}
+        onLogin={login}
+        onRegister={register}
+        error={authError}
+      />
     </div>
   );
 }

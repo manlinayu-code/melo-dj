@@ -12,7 +12,8 @@ import {
 
 export const users = mysqlTable("users", {
   id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }),
+  name: varchar("name", { length: 255 }).notNull(),
+  password: varchar("password", { length: 255 }),
   avatar: varchar("avatar", { length: 500 }),
   location: varchar("location", { length: 100 }).default("Shanghai"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -49,5 +50,6 @@ export const chatMessages = mysqlTable("chat_messages", {
   sender: varchar("sender", { length: 10 }).notNull(),
   text: text("text").notNull(),
   type: varchar("type", { length: 20 }).default("text"),
+  recommendationJson: text("recommendation_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
