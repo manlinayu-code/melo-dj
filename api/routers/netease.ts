@@ -2,9 +2,8 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 
 // @neteasecloudmusicapienhanced/api is a CommonJS package.
-// Use require to avoid ESM/CJS interop issues.
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+// This file is bundled to CJS by esbuild, so `require` is always available at runtime.
+// @ts-ignore
 const neteaseApi = require("@neteasecloudmusicapienhanced/api");
 
 export const neteaseRouter = createRouter({
