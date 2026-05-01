@@ -8,13 +8,6 @@ import { eq } from "drizzle-orm";
 // @ts-ignore
 const neteaseApi = require("@neteasecloudmusicapienhanced/api");
 
-function getNeteaseCookie(userId?: number): string | undefined {
-  if (!userId) return undefined;
-  // NOTE: In production with async db, this should be awaited.
-  // For now we return undefined and handle cookie via request params.
-  return undefined;
-}
-
 export const neteaseRouter = createRouter({
   search: publicQuery
     .input(
@@ -112,6 +105,69 @@ export const neteaseRouter = createRouter({
       }
     }),
 
+  // ===== QR Code Login =====
+  qrKey: publicQuery.query(async () => {
+    try {
+      const result = await neteaseApi.login_qr_key({});
+      return result?.body || { code: 500 };
+    } catch (err: any) {
+      console.error("[netease/qrKey] error:", err?.message || err);
+      return { code: 500 };
+    }
+  }),
+
+  qrCreate: publicQuery
+    .input(z.object({ key: z.string() }))
+    .query(async ({ input }) => {
+      try {
+        const result = await neteaseApi.login_qr_create({ key: input.key, qrimg: true });
+        return result?.body || { code: 500 };
+      } catch (err: any) {
+        console.error("[netease/qrCreate] error:", err?.message || err);
+        return { code: 500 };
+      }
+    }),
+
+  qrCheck: publicQuery
+    .input(z.object({ key: z.string() }))
+    .query(async ({ input }) => {
+      try {
+        const result = await neteaseApi.login_qr_check({ key: input.key });
+        return result?.body || { code: 500 };
+      } catch (err: any) {
+        console.error("[netease/qrCheck] error:", err?.message || err);
+        return { code: 500 };
+      }
+    }),
+
+  saveQrSession: authedQuery
+    .input(z.object({ cookie: z.string(), nickname: z.string().optional(), avatar: z.string().optional(), uid: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      if (!db) return { success: false };
+      try {
+        await db.insert(neteaseSessions).values({
+          userId: ctx.user.userId,
+          cookie: input.cookie,
+          nickname: input.nickname || null,
+          avatar: input.avatar || null,
+          neteaseUid: input.uid || null,
+        }).onDuplicateKeyUpdate({
+          set: {
+            cookie: input.cookie,
+            nickname: input.nickname || null,
+            avatar: input.avatar || null,
+            neteaseUid: input.uid || null,
+            updatedAt: new Date(),
+          },
+        });
+        return { success: true };
+      } catch {
+        return { success: false };
+      }
+    }),
+
+  // ===== Phone Login =====
   loginPhone: authedQuery
     .input(z.object({ phone: z.string(), password: z.string(), countrycode: z.string().optional().default("86") }))
     .mutation(async ({ input, ctx }) => {
@@ -125,8 +181,6 @@ export const neteaseRouter = createRouter({
         if (!body || body.code !== 200) {
           return { success: false, error: body?.msg || "Login failed", profile: null };
         }
-
-        // Save cookie to database
         const db = getDb();
         if (db) {
           const cookie = body.cookie || "";
@@ -149,7 +203,6 @@ export const neteaseRouter = createRouter({
             },
           });
         }
-
         return {
           success: true,
           profile: {

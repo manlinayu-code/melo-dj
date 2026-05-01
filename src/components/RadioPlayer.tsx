@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
+import { useState, useRef, useEffect } from "react";
 import { Play, Pause, SkipForward, SkipBack, Volume2, Radio, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import type { LyricLine } from "@/context/AppContext";
@@ -7,7 +8,7 @@ import type { LyricLine } from "@/context/AppContext";
 export default function RadioPlayer({ onClose }: { onClose: () => void }) {
   const {
     isPlaying, currentTrack, progress, duration, volume,
-    togglePlay, nextTrack, prevTrack, setVolume,
+    togglePlay, nextTrack, prevTrack, setVolume, seekTo,
     audioAnalyser, lyrics, currentLyricIndex,
     djPersona,
   } = useApp();
@@ -155,20 +156,7 @@ export default function RadioPlayer({ onClose }: { onClose: () => void }) {
 
           {/* Progress */}
           <div className="space-y-2">
-            <div
-              className="relative h-1.5 bg-[#e8e8f0] rounded-full cursor-pointer overflow-hidden"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const pct = (e.clientX - rect.left) / rect.width;
-                // Note: seeking requires audio element access, not directly available here
-                // We'd need to expose a seek function from AppContext
-              }}
-            >
-              <div
-                className="absolute top-0 left-0 h-full bg-[#00d084] rounded-full transition-all"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
+            <SeekBar progress={progress} duration={duration} onSeek={seekTo} />
             <div className="flex justify-between text-[10px] text-[#8a8a9a] font-mono">
               <span>{fmt(progress)}</span>
               <span>{fmt(duration || currentTrack?.duration || 0)}</span>
@@ -249,5 +237,43 @@ export default function RadioPlayer({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </motion.div>
+  );
+}
+
+
+/** Seek bar with click and drag support */
+function SeekBar({ progress, duration, onSeek }: { progress: number; duration: number; onSeek: (pos: number) => void }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const pct = duration > 0 ? (progress / duration) * 100 : 0;
+
+  const handleSeek = (clientX: number) => {
+    if (!barRef.current || !duration) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onSeek(ratio * duration);
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => { if (isDragging) handleSeek(e.clientX); };
+    const onUp = () => setIsDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [isDragging, duration]);
+
+  return (
+    <div
+      ref={barRef}
+      className="relative h-[4px] bg-[#e8e8f0] rounded-full cursor-pointer"
+      onClick={(e) => handleSeek(e.clientX)}
+      onMouseDown={(e) => { setIsDragging(true); handleSeek(e.clientX); }}
+    >
+      <div className="absolute top-0 left-0 h-full bg-[#00d084] rounded-full transition-all" style={{ width: `${pct}%` }} />
+      <div
+        className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-[#00d084] rounded-full shadow-lg"
+        style={{ left: `${pct}%`, transform: "translate(-50%, -50%)", opacity: isDragging ? 1 : 0.8 }}
+      />
+    </div>
   );
 }

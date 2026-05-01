@@ -129,6 +129,8 @@ interface AppActions {
   bindNetease: (phone: string, password: string) => Promise<void>;
   unbindNetease: () => Promise<void>;
   fetchLyrics: (neteaseId: number) => Promise<void>;
+  seekTo: (position: number) => void;
+  importPlaylist: (playlistId: string | number) => Promise<void>;
 }
 
 const defaultTracks: Track[] = [
@@ -422,6 +424,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       showToast("解绑失败");
     }
   }, []);
+
+  // ---- Seek ----
+  const seekTo = useCallback((position: number) => {
+    const audio = audioRef.current;
+    if (!audio || !duration) return;
+    const clamped = Math.max(0, Math.min(position, duration));
+    audio.currentTime = clamped;
+    setProgress(clamped);
+  }, [duration]);
+
+  // ---- Import Playlist ----
+  const importPlaylist = useCallback(async (playlistId: string | number) => {
+    if (!playlistId) return;
+    try {
+      showToast("正在导入歌单...");
+      const data = await trpcGet("netease.playlist", { id: playlistId });
+      const tracks = data?.playlist?.tracks;
+      if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
+        showToast("歌单为空或获取失败");
+        return;
+      }
+      const newTracks: Track[] = tracks
+        .filter((s: any) => s && s.id)
+        .map((s: any, i: number) => ({
+          id: `pl-${s.id}-${i}`,
+          title: s.name || "未知",
+          artist: Array.isArray(s.ar) ? s.ar.map((a: any) => a?.name || "").join(", ") : "未知",
+          album: s.al?.name || "",
+          duration: Math.floor((s.dt || 0) / 1000),
+          cover: s.al?.picUrl || "/cover-if.jpg",
+          genre: ["Playlist"],
+          isFav: false,
+          neteaseId: s.id,
+        }));
+      if (newTracks.length > 0) {
+        setQueue((q) => [...newTracks, ...(q || [])]);
+        if (!currentTrack) {
+          setCurrentTrack(newTracks[0]);
+          setIsPlaying(true);
+        }
+        showToast(`已导入 ${newTracks.length} 首歌到队列`);
+      }
+    } catch (err: any) {
+      console.error("importPlaylist error:", err);
+      showToast("导入歌单失败");
+    }
+  }, [currentTrack, showToast]);
 
   // Load netease session on mount
   useEffect(() => {
@@ -797,7 +846,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toggleRadioMode, setMood, setIntensity, setImmersed,
     startVoiceInput, stopVoiceInput, fetchWeather, playFromRecommendation,
     login, register, logout, openLoginModal, closeLoginModal, setTheme,
-    bindNetease, unbindNetease, fetchLyrics,
+    bindNetease, unbindNetease, fetchLyrics, seekTo, importPlaylist,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause, SkipBack, SkipForward, Heart, Volume2, CloudRain, Cloud, Sun as SunIcon, Snowflake, Wind, Search, Radio, Thermometer, Droplets, Zap, Mic, ChevronRight, User, LogIn, Moon } from "lucide-react";
 import { useApp } from "@/context/AppContext";
@@ -20,7 +20,7 @@ export default function Home({ onNavigate }: { onNavigate?: (v: "home" | "queue"
     weather, djPersona, toggleRadioMode, radioMode, envVibe,
     setMood, setIntensity, setImmersed, searchAndPlay, startVoiceInput,
     isSpeaking, isListening,
-    user, openLoginModal, logout, theme, setTheme,
+    user, openLoginModal, logout, theme, setTheme, seekTo,
   } = useApp();
 
   const [time, setTime] = useState(new Date());
@@ -222,10 +222,7 @@ export default function Home({ onNavigate }: { onNavigate?: (v: "home" | "queue"
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-[#8a8a9a]"><span>{formatTime(progress)}</span><span>{formatTime(duration || currentTrack.duration || 0)}</span></div>
-              <div className="relative h-[3px] bg-white/10 rounded-full group cursor-pointer">
-                <div className="absolute top-0 left-0 h-full bg-white rounded-full transition-all" style={{ width: `${progressPct}%` }} />
-                <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `${progressPct}%`, transform: "translate(-50%, -50%)" }} />
-              </div>
+              <SeekBar progress={progress} duration={duration} onSeek={seekTo} />
             </div>
             <div className="flex items-center justify-between">
               <button onClick={() => toggleFav(currentTrack.id)} className="text-xs text-[#8a8a9a] hover:text-[#ff6b6b] transition-colors"><Heart size={16} className={currentTrack.isFav ? "fill-[#ff6b6b] text-[#ff6b6b]" : ""} /></button>
@@ -262,5 +259,43 @@ export default function Home({ onNavigate }: { onNavigate?: (v: "home" | "queue"
         )}
       </div>
     </motion.div>
+  );
+}
+
+
+/** Seek bar with click and drag support */
+function SeekBar({ progress, duration, onSeek }: { progress: number; duration: number; onSeek: (pos: number) => void }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const pct = duration > 0 ? (progress / duration) * 100 : 0;
+
+  const handleSeek = (clientX: number) => {
+    if (!barRef.current || !duration) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onSeek(ratio * duration);
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => { if (isDragging) handleSeek(e.clientX); };
+    const onUp = () => setIsDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [isDragging, duration]);
+
+  return (
+    <div
+      ref={barRef}
+      className="relative h-[4px] bg-white/10 rounded-full cursor-pointer group"
+      onClick={(e) => handleSeek(e.clientX)}
+      onMouseDown={(e) => { setIsDragging(true); handleSeek(e.clientX); }}
+    >
+      <div className="absolute top-0 left-0 h-full bg-white rounded-full transition-all" style={{ width: `${pct}%` }} />
+      <div
+        className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg transition-opacity"
+        style={{ left: `${pct}%`, transform: "translate(-50%, -50%)", opacity: isDragging ? 1 : undefined }}
+      />
+    </div>
   );
 }
