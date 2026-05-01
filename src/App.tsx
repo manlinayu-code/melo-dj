@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { AppProvider, useApp } from '@/context/AppContext';
 import DockNav from '@/components/DockNav';
@@ -8,6 +8,33 @@ import Queue from '@/pages/Queue';
 import Chat from '@/pages/Chat';
 import Profile from '@/pages/Profile';
 import type { ViewType } from '@/types';
+
+function ErrorFallback({ error }: { error: Error }) {
+  return (
+    <div className="min-h-screen bg-[#06060a] text-white p-6">
+      <h1 className="text-xl font-bold text-red-400 mb-4">Claudio 遇到了问题</h1>
+      <pre className="text-xs bg-white/5 p-4 rounded-lg overflow-auto whitespace-pre-wrap">{error.message}
+
+{error.stack}</pre>
+    </div>
+  );
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return <ErrorFallback error={this.state.error!} />;
+    }
+    return this.props.children;
+  }
+}
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -31,8 +58,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

@@ -22,7 +22,7 @@ export default function Home() {
     togglePlay, setVolume, nextTrack, prevTrack,
     weather, djPersona, messages, toggleRadioMode, radioMode,
     envVibe, setMood, setIntensity, setImmersed,
-    searchAndPlay, showToast, currentSubtitle,
+    searchAndPlay, currentSubtitle,
     isSpeaking,
   } = useApp();
 

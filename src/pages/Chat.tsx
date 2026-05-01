@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, Send, Volume2, VolumeX, CloudRain, Sun, Moon, Zap, Music, Radio } from 'lucide-react';
+import { Mic, Send, Volume2, CloudRain, Sun, Moon, Zap, Music, Radio } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import WaveformCanvas from '@/components/WaveformCanvas';
 import BreathingOrb from '@/components/BreathingOrb';
@@ -57,7 +57,7 @@ function renderClaudioText(text: string) {
 }
 
 export default function Chat() {
-  const { messages, isTyping, isPlaying, isSpeaking, sendMessage, djPersona, radioMode, toggleRadioMode, currentSubtitle } = useApp();
+  const { messages, isTyping, isSpeaking, sendMessage, djPersona, radioMode, toggleRadioMode, currentSubtitle } = useApp();
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -155,13 +155,13 @@ export default function Chat() {
 
       {/* Voice Waveform */}
       <div className="px-4 mb-4">
-        <WaveformCanvas isPlaying={isPlaying || isSpeaking} color="white" height={60} barCount={60} />
+        <WaveformCanvas isPlaying={isSpeaking} color="white" height={60} barCount={60} />
       </div>
 
       {/* Breathing orb in chat header when radio mode */}
       {radioMode && (
         <div className="flex justify-center py-4">
-          <BreathingOrb isListening={!isSpeaking && !isTyping} isSpeaking={isSpeaking} isPlaying={isPlaying} />
+          <BreathingOrb isListening={!isSpeaking && !isTyping} isSpeaking={isSpeaking} isPlaying={false} />
         </div>
       )}
 

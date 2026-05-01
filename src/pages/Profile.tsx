@@ -37,7 +37,7 @@ const demoTaste = {
 };
 
 export default function Profile({ onNavigate }: { onNavigate: (v: ViewType) => void }) {
-  const { djPersona, showToast, searchAndPlay, userTaste, envVibe } = useApp();
+  const { djPersona, showToast, searchAndPlay, userTaste } = useApp();
   const [hoveredTag, setHoveredTag] = useState<string | null>(null);
   const [radarDrawn, setRadarDrawn] = useState(false);
   const [showTaste, setShowTaste] = useState(false);

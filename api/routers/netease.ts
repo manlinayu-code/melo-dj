@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
-import { search, song_url, song_detail, lyric, playlist_detail } from "@neteasecloudmusicapienhanced/api";
+
+// @neteasecloudmusicapienhanced/api is a CommonJS package.
+// Use default import to avoid ESM/CJS interop issues in Vite SSR.
+import neteasePkg from "@neteasecloudmusicapienhanced/api";
+const { search, song_url, song_detail, lyric, playlist_detail } = neteasePkg as {
+  search: typeof import("@neteasecloudmusicapienhanced/api").search;
+  song_url: typeof import("@neteasecloudmusicapienhanced/api").song_url;
+  song_detail: typeof import("@neteasecloudmusicapienhanced/api").song_detail;
+  lyric: typeof import("@neteasecloudmusicapienhanced/api").lyric;
+  playlist_detail: typeof import("@neteasecloudmusicapienhanced/api").playlist_detail;
+};
 
 export const neteaseRouter = createRouter({
   search: publicQuery

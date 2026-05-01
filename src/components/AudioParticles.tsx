@@ -49,7 +49,7 @@ export default function AudioParticles({ isActive, intensity = 0.5 }: AudioParti
 
       particlesRef.current.forEach((p) => {
         const beatPulse = isActive ? Math.sin(time * 3 + p.phase) * intensity * 8 : 0;
-        const size = p.size + beatPulse;
+        const size = Math.max(0.1, p.size + beatPulse);
         const alpha = isActive ? Math.min(p.opacity + intensity * 0.3, 0.6) : p.opacity * 0.5;
 
         // Move upward

@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { trpcClient } from '@/providers/trpc';
 import type { Track, DJProfile, ChatMessage, WeatherInfo, EnvVibe, UserTaste } from '@/types';
 
-interface AppState {
+interface AppContextType {
   isPlaying: boolean;
   currentTrack: Track | null;
   progress: number;
@@ -14,15 +13,11 @@ interface AppState {
   isTyping: boolean;
   weather: WeatherInfo;
   toast: { message: string; visible: boolean } | null;
-  audioElement: HTMLAudioElement | null;
   isSpeaking: boolean;
   radioMode: boolean;
   envVibe: EnvVibe;
   userTaste: UserTaste | null;
   currentSubtitle: string;
-}
-
-interface AppContextType extends AppState {
   togglePlay: () => void;
   setVolume: (v: number) => void;
   nextTrack: () => void;
@@ -89,30 +84,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [radioMode, setRadioMode] = useState(false);
   const [envVibe, setEnvVibe] = useState<EnvVibe>({ mood: 'Chill', intensity: 0.5, radioMode: false, immersed: false });
-  const [userTaste, setUserTaste] = useState<UserTaste | null>(null);
+  const [userTaste] = useState<UserTaste | null>(null);
   const [currentSubtitle, setCurrentSubtitle] = useState('');
+  const [weather, setWeather] = useState<WeatherInfo>(defaultWeather);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const chatMutation = trpcClient.chat.message;
-
+  // Audio element init
   useEffect(() => {
     const audio = new Audio();
     audio.crossOrigin = 'anonymous';
     audioRef.current = audio;
-
     const onTimeUpdate = () => setProgress(audio.currentTime);
     const onLoadedMetadata = () => setDuration(audio.duration || 0);
     const onEnded = () => { setIsPlaying(false); nextTrack(); };
     const onError = () => { console.error('Audio error'); setIsPlaying(false); };
-
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('error', onError);
-
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
@@ -122,29 +114,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Handle play/pause
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !audio.src) return;
+    if (isPlaying) {
+      audio.play().catch((err) => { console.error('Play error:', err); setIsPlaying(false); });
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying]);
+
+  // Handle volume
+  useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
+
+  // Update audio source when track changes
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
     setProgress(0); setDuration(0);
     if (currentTrack.neteaseId) {
-      trpcClient.netease.songUrl.query({ id: currentTrack.neteaseId })
+      // Use direct fetch to get song URL
+      fetch(`/api/trpc/netease.songUrl?input=${encodeURIComponent(JSON.stringify({ id: currentTrack.neteaseId }))}`)
+        .then((r) => r.json())
         .then((result) => {
-          const data = result as { data?: Array<{ url?: string }> } | undefined;
-          const url = data?.data?.[0]?.url;
-          if (url) { audio.src = url; audio.volume = volume; if (isPlaying) audio.play().catch(console.error); }
+          const data = result.result?.data?.data;
+          const url = data?.[0]?.url;
+          if (url) {
+            audio.src = url;
+            audio.volume = volume;
+            if (isPlaying) audio.play().catch(console.error);
+          }
         })
         .catch(console.error);
     }
   }, [currentTrack?.id]);
 
+  // Fetch weather on mount
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !audio.src) return;
-    if (isPlaying) { audio.play().catch((err) => { console.error('Play error:', err); setIsPlaying(false); }); }
-    else { audio.pause(); }
-  }, [isPlaying]);
-
-  useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
+    fetchWeather();
+    const interval = setInterval(fetchWeather, 600000);
+    return () => clearInterval(interval);
+  }, []);
 
   const togglePlay = useCallback(() => setIsPlaying((p) => !p), []);
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), []);
@@ -177,7 +188,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const showToast = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ message, visible: true });
-    toastTimer.current = setTimeout(() => { setToast((t) => (t ? { ...t, visible: false } : null)); setTimeout(() => setToast(null), 300); }, 2500);
+    toastTimer.current = setTimeout(() => {
+      setToast((t) => (t ? { ...t, visible: false } : null));
+      setTimeout(() => setToast(null), 300);
+    }, 2500);
   }, []);
 
   const sendMessage = useCallback(async (text: string) => {
@@ -186,25 +200,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsTyping(true);
 
     try {
-      const history = messages.slice(-8).map((m) => ({ role: m.sender === 'user' ? 'user' as const : 'assistant' as const, content: m.text }));
+      const history = messages.slice(-8).map((m) => ({
+        role: m.sender === 'user' ? 'user' as const : 'assistant' as const,
+        content: m.text,
+      }));
       const now = new Date();
-      const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+      const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-      const result = await chatMutation.mutate({
-        text,
-        history,
-        env: {
-          time: timeStr,
-          weather: weather.text,
-          location: weather.city,
-          mood: envVibe.mood,
-          intensity: envVibe.intensity,
-          userGenres: userTaste?.topGenres?.map((g) => g.name) || [],
-          userArtists: userTaste?.topArtists?.map((a) => a.name) || [],
-          recentPlays: messages.filter((m) => m.sender === 'dj' && m.recommendation).slice(-3).map((m) => m.recommendation?.title || ''),
-          radioMode: radioMode,
-        },
+      // Call chat API directly via fetch
+      const chatRes = await fetch('/api/trpc/chat.message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          json: {
+            text,
+            history,
+            env: {
+              time: timeStr,
+              weather: weather.text,
+              location: weather.city,
+              mood: envVibe.mood,
+              intensity: envVibe.intensity,
+              userGenres: userTaste?.topGenres?.map((g) => g.name) || [],
+              userArtists: userTaste?.topArtists?.map((a) => a.name) || [],
+              recentPlays: messages.filter((m) => m.sender === 'dj' && m.recommendation).slice(-3).map((m) => m.recommendation?.title || ''),
+              radioMode: radioMode,
+            },
+          },
+        }),
       });
+      const chatResult = await chatRes.json();
+      const result = chatResult.result?.data;
+
+      if (!result) throw new Error('No response from chat API');
 
       const djMsg: ChatMessage = {
         id: `d-${Date.now()}`,
@@ -226,14 +254,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // If recommendation exists, search and play
       if (result.recommendation) {
         const rec = result.recommendation;
-        const searchResult = await trpcClient.netease.search.query({ keywords: `${rec.title} ${rec.artist}`, limit: 5 });
-        const songs = (searchResult as { result?: { songs?: Array<{ id: number; name: string; ar: Array<{ name: string }>; al: { name: string; picUrl: string }; dt: number }> } })?.result?.songs || [];
+        const searchRes = await fetch(`/api/trpc/netease.search?input=${encodeURIComponent(JSON.stringify({ keywords: `${rec.title} ${rec.artist}`, limit: 5 }))}`);
+        const searchResult = await searchRes.json();
+        const songs = searchResult.result?.data?.result?.songs || [];
         if (songs.length > 0) {
           const s = songs[0];
           const newTrack: Track = {
-            id: `netease-${s.id}`, title: s.name, artist: s.ar.map((a) => a.name).join(', '),
-            album: s.al.name, duration: Math.floor(s.dt / 1000), cover: s.al.picUrl || '/cover-if.jpg',
-            genre: [rec.vibe_match || 'Recommended'], isFav: false, neteaseId: s.id,
+            id: `netease-${s.id}`,
+            title: s.name,
+            artist: s.ar.map((a: any) => a.name).join(', '),
+            album: s.al.name,
+            duration: Math.floor(s.dt / 1000),
+            cover: s.al.picUrl || '/cover-if.jpg',
+            genre: [rec.vibe_match || 'Recommended'],
+            isFav: false,
+            neteaseId: s.id,
           };
           setQueue((q) => [newTrack, ...q]);
           showToast(`Claudio 推荐: 《${rec.title}》— ${rec.artist}`);
@@ -241,28 +276,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Auto speak if radio mode
-      if (radioMode) { speak(result.text); }
-      else { speak(result.text); }
+      speak(result.text);
     } catch (err) {
       console.error('Chat error:', err);
-      const errorMsg: ChatMessage = { id: `d-${Date.now()}`, sender: 'dj', text: radioMode ? 'The signal is fading... let me find another frequency.' : '唱片卡住了...让我换一张。', timestamp: Date.now() };
+      const errorMsg: ChatMessage = {
+        id: `d-${Date.now()}`,
+        sender: 'dj',
+        text: radioMode ? 'The signal is fading... let me find another frequency.' : '唱片卡住了...让我换一张。',
+        timestamp: Date.now(),
+      };
       setMessages((msgs) => [...msgs, errorMsg]);
     } finally {
       setIsTyping(false);
     }
-  }, [messages, chatMutation, showToast, weather, envVibe, userTaste, radioMode]);
+  }, [messages, weather, envVibe, userTaste, radioMode, showToast]);
 
   const searchAndPlay = useCallback(async (query: string) => {
     try {
-      const result = await trpcClient.netease.search.query({ keywords: query, limit: 10 });
-      const songs = (result as { result?: { songs?: Array<{ id: number; name: string; ar: Array<{ name: string }>; al: { name: string; picUrl: string }; dt: number }> } })?.result?.songs || [];
+      const res = await fetch(`/api/trpc/netease.search?input=${encodeURIComponent(JSON.stringify({ keywords: query, limit: 10 }))}`);
+      const result = await res.json();
+      const songs = result.result?.data?.result?.songs || [];
       if (songs.length === 0) { showToast('Claudio 没找到这首歌，换个关键词试试？'); return; }
-      const tracks: Track[] = songs.map((s, i) => ({
-        id: `netease-${s.id}-${i}`, title: s.name, artist: s.ar.map((a) => a.name).join(', '),
-        album: s.al.name, duration: Math.floor(s.dt / 1000), cover: s.al.picUrl || '/cover-if.jpg',
-        genre: ['Search Result'], isFav: false, neteaseId: s.id,
+      const tracks: Track[] = songs.map((s: any, i: number) => ({
+        id: `netease-${s.id}-${i}`,
+        title: s.name,
+        artist: s.ar.map((a: any) => a.name).join(', '),
+        album: s.al.name,
+        duration: Math.floor(s.dt / 1000),
+        cover: s.al.picUrl || '/cover-if.jpg',
+        genre: ['Search Result'],
+        isFav: false,
+        neteaseId: s.id,
       }));
-      setQueue(tracks.slice(1)); setCurrentTrack(tracks[0]); setIsPlaying(true);
+      setQueue(tracks.slice(1));
+      setCurrentTrack(tracks[0]);
+      setIsPlaying(true);
       showToast(`Claudio 找到了 ${tracks.length} 首歌`);
     } catch (err) { console.error('Search error:', err); showToast('搜索出错了，Claudio 的网线被猫咬断了'); }
   }, [showToast]);
@@ -299,30 +347,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setIntensity = useCallback((intensity: number) => { setEnvVibe((v) => ({ ...v, intensity })); }, []);
   const setImmersed = useCallback((immersed: boolean) => { setEnvVibe((v) => ({ ...v, immersed })); }, []);
 
-  const [weather, setWeather] = useState<WeatherInfo>(defaultWeather);
-
   const fetchWeather = useCallback(async () => {
     try {
-      const result = await trpcClient.weather.current.query({ location: '101020100' });
-      if (result.success) {
+      const res = await fetch('/api/trpc/weather.current?input=%7B%7D');
+      const result = await res.json();
+      const data = result.result?.data;
+      if (data?.success) {
         setWeather({
-          condition: result.condition as WeatherInfo['condition'],
-          temp: result.temp,
-          city: result.city,
-          text: result.text,
-          wind: result.wind,
-          humidity: result.humidity,
+          condition: data.condition as WeatherInfo['condition'],
+          temp: data.temp,
+          city: data.city,
+          text: data.text,
+          wind: data.wind,
+          humidity: data.humidity,
         });
       }
     } catch (err) { console.error('Weather fetch error:', err); }
   }, []);
 
-  useEffect(() => { fetchWeather(); const interval = setInterval(fetchWeather, 600000); return () => clearInterval(interval); }, [fetchWeather]);
-
   const value: AppContextType = {
     isPlaying, currentTrack, progress, duration, volume, queue,
     djPersona, messages, isTyping, weather, toast,
-    audioElement: audioRef.current, isSpeaking, radioMode, envVibe, userTaste, currentSubtitle,
+    isSpeaking, radioMode, envVibe, userTaste, currentSubtitle,
     togglePlay, setVolume, nextTrack, prevTrack, sendMessage,
     playTrack, addToQueue, removeFromQueue, reorderQueue, toggleFav,
     showToast, searchAndPlay, speak, stopSpeaking,
