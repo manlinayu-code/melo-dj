@@ -86,6 +86,32 @@ export async function runAutoMigrate() {
     console.log("[migrate] Auto-migration completed successfully");
   } catch (err: any) {
     console.error("[migrate] Migration failed:", err.message);
+
+    // Provide actionable guidance for TiDB Cloud access denied errors
+    if (err.code === "ER_ACCESS_DENIED_ERROR" && config.host.includes("tidbcloud.com")) {
+      console.error("");
+      console.error("═══════════════════════════════════════════════════════════════");
+      console.error("  TiDB Cloud Connection Failed - Authentication Error");
+      console.error("═══════════════════════════════════════════════════════════════");
+      console.error("");
+      console.error("This is NOT a code issue. Please check the following in TiDB Cloud:");
+      console.error("");
+      console.error("1. PASSWORD");
+      console.error("   - Go to https://tidbcloud.com → your cluster → Connect → MySQL");
+      console.error("   - Click 'Reset Password' or 'Generate Password'");
+      console.error("   - Copy the NEW password and update your DATABASE_URL in Render");
+      console.error("");
+      console.error("2. IP ACCESS LIST (very common cause)");
+      console.error("   - In TiDB Cloud, go to Security Settings → IP Access List");
+      console.error("   - Add the Render outbound IP or use 0.0.0.0/0 to allow all IPs");
+      console.error("   - Render's current IP:", "74.220.52.251");
+      console.error("");
+      console.error("3. DATABASE NAME");
+      console.error("   - Ensure the database '", config.database, "' exists in your cluster");
+      console.error("   - You can connect via TiDB Cloud's web SQL editor to verify");
+      console.error("═══════════════════════════════════════════════════════════════");
+    }
+
     throw err;
   } finally {
     if (conn) await conn.end();
