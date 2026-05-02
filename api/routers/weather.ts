@@ -2,12 +2,39 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 import axios from "axios";
 
-const WEATHER_API_BASES = process.env.WEATHER_API_BASE
-  ? [process.env.WEATHER_API_BASE]
-  : ["https://devapi.qweather.com/v7", "https://api.qweather.com/v7"];
-const GEO_API_BASES = process.env.WEATHER_API_BASE
-  ? [`${process.env.WEATHER_API_BASE.replace(/\/v7$/, "")}/geo/v2`]
-  : ["https://geoapi.qweather.com/v2", "https://api.qweather.com/geo/v2"];
+// 新版和风天气 API (开发平台)
+// Host: {凭据ID}.qweatherapi.com
+// Auth Header: X-QW-Api-Key: {API_KEY}
+const QWEATHER_API_HOST = process.env.WEATHER_API_HOST || "";
+const QWEATHER_API_KEY = process.env.WEATHER_API_KEY || "";
+
+// 旧版和风天气 API 回退
+const LEGACY_WEATHER_BASES = [
+  "https://devapi.qweather.com/v7",
+  "https://api.qweather.com/v7",
+];
+const LEGACY_GEO_BASES = [
+  "https://geoapi.qweather.com/v2",
+  "https://api.qweather.com/geo/v2",
+];
+
+function getWeatherBases(): string[] {
+  if (QWEATHER_API_HOST) {
+    return [`https://${QWEATHER_API_HOST}/v7`];
+  }
+  return LEGACY_WEATHER_BASES;
+}
+
+function getGeoBases(): string[] {
+  if (QWEATHER_API_HOST) {
+    return [`https://${QWEATHER_API_HOST}/geo/v2`];
+  }
+  return LEGACY_GEO_BASES;
+}
+
+function isNewApi(): boolean {
+  return !!QWEATHER_API_HOST;
+}
 
 const conditionMap: Record<string, string> = {
   "100": "sunny", "101": "cloudy", "102": "cloudy", "103": "cloudy",
@@ -31,7 +58,7 @@ export const weatherRouter = createRouter({
         .optional()
     )
     .query(async ({ input }) => {
-      const apiKey = process.env.WEATHER_API_KEY || "";
+      const apiKey = QWEATHER_API_KEY;
       const location = input?.location || "101020100";
 
       if (!apiKey) {
@@ -46,17 +73,21 @@ export const weatherRouter = createRouter({
         };
       }
 
+      const bases = getWeatherBases();
+      const newApi = isNewApi();
       let lastErr: any = null;
-      for (const base of WEATHER_API_BASES) {
+
+      for (const base of bases) {
         try {
           const res = await axios.get(`${base}/weather/now`, {
-            params: { location, key: apiKey },
+            params: newApi ? { location } : { location, key: apiKey },
+            headers: newApi ? { "X-QW-Api-Key": apiKey } : {},
             timeout: 10000,
           });
 
           const data = res.data;
-          if (data.code !== "200") {
-            throw new Error(data.message || "Weather API error");
+          if (data.code !== "200" && data.code !== 200) {
+            throw new Error(data.message || `Weather API error: ${JSON.stringify(data)}`);
           }
 
           const now = data.now;
@@ -72,13 +103,15 @@ export const weatherRouter = createRouter({
           };
         } catch (err: any) {
           lastErr = err;
-          const isInvalidHost = err?.response?.data?.error?.type?.includes("invalid-host");
-          if (!isInvalidHost) break; // 不是 Host 问题，直接跳出
-          console.error(`[weather] ${base} failed with Invalid Host, trying fallback...`);
+          console.error(`[weather] ${base} failed:`, err?.response?.data || err?.message || err);
+          if (!newApi) {
+            const isInvalidHost = err?.response?.data?.error?.type?.includes("invalid-host");
+            if (!isInvalidHost) break;
+          }
         }
       }
 
-      console.error("[weather] error:", lastErr?.message || lastErr);
+      console.error("[weather] All endpoints failed. Last error:", lastErr?.message || lastErr);
       return {
         success: false,
         temp: 18,
@@ -93,18 +126,24 @@ export const weatherRouter = createRouter({
   cityLookup: publicQuery
     .input(z.object({ query: z.string() }))
     .query(async ({ input }) => {
-      const apiKey = process.env.WEATHER_API_KEY || "";
+      const apiKey = QWEATHER_API_KEY;
       if (!apiKey) return { success: false, cities: [] };
 
+      const bases = getGeoBases();
+      const newApi = isNewApi();
       let lastErr: any = null;
-      for (const base of GEO_API_BASES) {
+
+      for (const base of bases) {
         try {
           const res = await axios.get(`${base}/city/lookup`, {
-            params: { location: input.query, key: apiKey, number: 5 },
+            params: newApi
+              ? { location: input.query, number: 5 }
+              : { location: input.query, key: apiKey, number: 5 },
+            headers: newApi ? { "X-QW-Api-Key": apiKey } : {},
             timeout: 10000,
           });
           const data = res.data;
-          if (data.code !== "200") return { success: false, cities: [] };
+          if (data.code !== "200" && data.code !== 200) return { success: false, cities: [] };
 
           return {
             success: true,
@@ -117,9 +156,11 @@ export const weatherRouter = createRouter({
           };
         } catch (err: any) {
           lastErr = err;
-          const isInvalidHost = err?.response?.data?.error?.type?.includes("invalid-host");
-          if (!isInvalidHost) break;
-          console.error(`[weather] ${base} failed with Invalid Host, trying fallback...`);
+          console.error(`[weather] ${base} failed:`, err?.response?.data || err?.message || err);
+          if (!newApi) {
+            const isInvalidHost = err?.response?.data?.error?.type?.includes("invalid-host");
+            if (!isInvalidHost) break;
+          }
         }
       }
       return { success: false, cities: [] };
