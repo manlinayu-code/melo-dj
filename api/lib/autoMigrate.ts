@@ -1,5 +1,6 @@
 import mysql from "mysql2/promise";
 import { env } from "./env";
+import { parseDatabaseUrl } from "./dbConfig";
 
 export async function runAutoMigrate() {
   if (!env.databaseUrl) {
@@ -7,14 +8,14 @@ export async function runAutoMigrate() {
     return;
   }
 
+  const config = parseDatabaseUrl(env.databaseUrl);
+  console.log(
+    `[migrate] Connecting to ${config.host}:${config.port} as ${config.user}, ssl=${config.ssl ? "enabled" : "disabled"}`
+  );
+
   let conn: mysql.Connection | null = null;
   try {
-    conn = await mysql.createConnection({
-      uri: env.databaseUrl,
-      ssl: {
-        rejectUnauthorized: true,
-      },
-    });
+    conn = await mysql.createConnection(config);
     console.log("[migrate] Connected to database, running auto-migration...");
 
     await conn.execute(`
