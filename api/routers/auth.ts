@@ -38,18 +38,24 @@ export const authRouter = createRouter({
         }
 
         const hashed = hashPassword(input.password);
-        const result = await db.insert(users).values({
+        await db.insert(users).values({
           name: input.name,
           password: hashed,
           avatar: `/melo-avatar.jpg`,
         });
-        const userId = Number(result[0].insertId);
+
+        // TiDB may return insertId as 0n, so re-query to get the actual id
+        const newUsers = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
+        if (newUsers.length === 0) {
+          return { success: false, error: "Failed to create user", token: null };
+        }
+        const userId = Number(newUsers[0].id);
         const token = signJWT({ userId, name: input.name });
         return { success: true, token, user: { id: userId, name: input.name } };
       } catch (err: any) {
         console.error("[auth.register] Database error:", err);
         const message = err.cause?.sqlMessage || err.cause?.message || err.message || "Database error";
-        return { success: false, error: message, token: null };
+        return { success: false, error: message || "Unknown database error", token: null };
       }
     }),
 

@@ -20,7 +20,7 @@ export async function runAutoMigrate() {
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         password VARCHAR(255),
         avatar VARCHAR(500),
@@ -31,7 +31,7 @@ export async function runAutoMigrate() {
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS user_preferences (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
         genres JSON,
         artists JSON,
@@ -45,7 +45,7 @@ export async function runAutoMigrate() {
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS play_history (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
         song_id VARCHAR(50) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -60,7 +60,7 @@ export async function runAutoMigrate() {
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS chat_messages (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
         sender VARCHAR(10) NOT NULL,
         text TEXT NOT NULL,
@@ -72,7 +72,7 @@ export async function runAutoMigrate() {
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS netease_sessions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
         cookie TEXT NOT NULL,
         netease_uid VARCHAR(50),
