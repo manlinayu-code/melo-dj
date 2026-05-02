@@ -31,7 +31,7 @@ export const authRouter = createRouter({
       const db = getDb();
       if (!db) return { success: false, error: "Database not available", token: null };
 
-      console.log(`[auth.register] Attempting to register user: ${input.name}`);
+      console.log(`[auth.register] Attempting to register user: ${input.name}, password length: ${input.password.length}`);
 
       try {
         const existing = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
@@ -79,7 +79,7 @@ export const authRouter = createRouter({
       const db = getDb();
       if (!db) return { success: false, error: "Database not available", token: null };
 
-      console.log(`[auth.login] Attempting login for user: ${input.name}`);
+      console.log(`[auth.login] Attempting login for user: ${input.name}, password length: ${input.password.length}`);
 
       try {
         const rows = await db.select().from(users).where(eq(users.name, input.name)).limit(1);
@@ -90,7 +90,14 @@ export const authRouter = createRouter({
 
         const user = rows[0];
         const passwordValid = user.password ? verifyPassword(input.password, user.password) : false;
-        console.log(`[auth.login] Password valid: ${passwordValid}`);
+        if (user.password) {
+          const [salt] = user.password.split(':');
+          const { pbkdf2Sync } = require('crypto');
+          const derived = pbkdf2Sync(input.password, salt, 100000, 64, 'sha256').toString('hex');
+          console.log(`[auth.login] Password valid: ${passwordValid}, stored prefix: ${user.password.slice(0, 30)}, derived prefix: ${derived.slice(0, 30)}`);
+        } else {
+          console.log(`[auth.login] Password valid: ${passwordValid}, no stored password`);
+        }
         if (!user.password || !passwordValid) {
           return { success: false, error: "Invalid password", token: null };
         }
