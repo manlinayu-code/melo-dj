@@ -2,14 +2,12 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 import axios from "axios";
 
-const WEATHER_API_BASES = [
-  "https://devapi.qweather.com/v7",
-  "https://api.qweather.com/v7",
-];
-const GEO_API_BASES = [
-  "https://geoapi.qweather.com/v2",
-  "https://api.qweather.com/geo/v2",
-];
+const WEATHER_API_BASES = process.env.WEATHER_API_BASE
+  ? [process.env.WEATHER_API_BASE]
+  : ["https://devapi.qweather.com/v7", "https://api.qweather.com/v7"];
+const GEO_API_BASES = process.env.WEATHER_API_BASE
+  ? [`${process.env.WEATHER_API_BASE.replace(/\/v7$/, "")}/geo/v2`]
+  : ["https://geoapi.qweather.com/v2", "https://api.qweather.com/geo/v2"];
 
 const conditionMap: Record<string, string> = {
   "100": "sunny", "101": "cloudy", "102": "cloudy", "103": "cloudy",

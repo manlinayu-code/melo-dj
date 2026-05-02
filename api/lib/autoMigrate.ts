@@ -2,6 +2,32 @@ import mysql from "mysql2/promise";
 import { env } from "./env";
 import { parseDatabaseUrl } from "./dbConfig";
 
+async function tableExists(conn: mysql.Connection, tableName: string): Promise<boolean> {
+  const [rows] = await conn.execute(
+    "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",
+    [tableName]
+  );
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+async function ensureTable(
+  conn: mysql.Connection,
+  tableName: string,
+  createSql: string
+) {
+  if (await tableExists(conn, tableName)) {
+    console.log(`[migrate] Table '${tableName}' already exists`);
+    return;
+  }
+  console.log(`[migrate] Creating table '${tableName}'...`);
+  await conn.execute(createSql);
+  if (await tableExists(conn, tableName)) {
+    console.log(`[migrate] Table '${tableName}' created successfully`);
+  } else {
+    throw new Error(`Table '${tableName}' was not created despite successful execute`);
+  }
+}
+
 export async function runAutoMigrate() {
   if (!env.databaseUrl) {
     console.log("[migrate] DATABASE_URL not set, skipping migration");
@@ -18,7 +44,10 @@ export async function runAutoMigrate() {
     conn = await mysql.createConnection(config);
     console.log("[migrate] Connected to database, running auto-migration...");
 
-    await conn.execute(`
+    await ensureTable(
+      conn,
+      "users",
+      `
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -27,9 +56,13 @@ export async function runAutoMigrate() {
         location VARCHAR(100) DEFAULT 'Shanghai',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
-    `);
+    `
+    );
 
-    await conn.execute(`
+    await ensureTable(
+      conn,
+      "user_preferences",
+      `
       CREATE TABLE IF NOT EXISTS user_preferences (
         id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
@@ -41,9 +74,13 @@ export async function runAutoMigrate() {
         intensity FLOAT DEFAULT 0.5,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
-    `);
+    `
+    );
 
-    await conn.execute(`
+    await ensureTable(
+      conn,
+      "play_history",
+      `
       CREATE TABLE IF NOT EXISTS play_history (
         id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
@@ -56,9 +93,13 @@ export async function runAutoMigrate() {
         played_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         completed BOOLEAN DEFAULT FALSE
       )
-    `);
+    `
+    );
 
-    await conn.execute(`
+    await ensureTable(
+      conn,
+      "chat_messages",
+      `
       CREATE TABLE IF NOT EXISTS chat_messages (
         id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
@@ -68,9 +109,13 @@ export async function runAutoMigrate() {
         recommendation_json TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
-    `);
+    `
+    );
 
-    await conn.execute(`
+    await ensureTable(
+      conn,
+      "netease_sessions",
+      `
       CREATE TABLE IF NOT EXISTS netease_sessions (
         id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
         user_id INT NOT NULL,
@@ -81,13 +126,13 @@ export async function runAutoMigrate() {
         phone VARCHAR(20),
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
-    `);
+    `
+    );
 
     console.log("[migrate] Auto-migration completed successfully");
   } catch (err: any) {
     console.error("[migrate] Migration failed:", err.message);
 
-    // Provide actionable guidance for TiDB Cloud access denied errors
     if (err.code === "ER_ACCESS_DENIED_ERROR" && config.host.includes("tidbcloud.com")) {
       console.error("");
       console.error("═══════════════════════════════════════════════════════════════");
