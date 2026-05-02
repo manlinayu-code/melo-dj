@@ -124,10 +124,21 @@ ${env.radioMode ? "RADIO MODE ON: Reply in English only. Speak like a late-night
 
       try {
         const apiKey = process.env.KIMI_API_KEY || "";
+        if (!apiKey) {
+          console.error("[chat] KIMI_API_KEY environment variable is not set");
+          return {
+            text: env.radioMode
+              ? "The AI DJ is taking a break..."
+              : "AI  DJ 暂时休息中...",
+            recommendation: null,
+            radioMode: env.radioMode,
+          };
+        }
+        console.log(`[chat] Calling Kimi API with key prefix: ${apiKey.slice(0, 6)}...`);
         const response = await axios.post(
           KIMI_API_URL,
           {
-            model: "kimi-latest",
+            model: "moonshot-v1-8k",
             messages,
             temperature: 0.85,
             max_tokens: 512,
