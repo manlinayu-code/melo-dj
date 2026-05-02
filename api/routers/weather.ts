@@ -5,7 +5,9 @@ import axios from "axios";
 // 新版和风天气 API (开发平台)
 // Host: {凭据ID}.qweatherapi.com
 // Auth Header: X-QW-Api-Key: {API_KEY}
-const QWEATHER_API_HOST = process.env.WEATHER_API_HOST || "";
+const RAW_API_HOST = process.env.WEATHER_API_HOST || "";
+// Auto-append .qweatherapi.com if user only provided credential ID
+const QWEATHER_API_HOST = RAW_API_HOST.includes(".") ? RAW_API_HOST : RAW_API_HOST ? `${RAW_API_HOST}.qweatherapi.com` : "";
 const QWEATHER_API_KEY = process.env.WEATHER_API_KEY || "";
 
 // 旧版和风天气 API 回退
