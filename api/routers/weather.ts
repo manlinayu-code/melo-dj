@@ -2,8 +2,14 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 import axios from "axios";
 
-const WEATHER_API_BASE = "https://devapi.qweather.com/v7";
-const GEO_API_BASE = "https://geoapi.qweather.com/v2";
+const WEATHER_API_BASES = [
+  "https://devapi.qweather.com/v7",
+  "https://api.qweather.com/v7",
+];
+const GEO_API_BASES = [
+  "https://geoapi.qweather.com/v2",
+  "https://api.qweather.com/geo/v2",
+];
 
 const conditionMap: Record<string, string> = {
   "100": "sunny", "101": "cloudy", "102": "cloudy", "103": "cloudy",
@@ -42,40 +48,48 @@ export const weatherRouter = createRouter({
         };
       }
 
-      try {
-        const res = await axios.get(`${WEATHER_API_BASE}/weather/now`, {
-          params: { location, key: apiKey },
-          timeout: 10000,
-        });
+      let lastErr: any = null;
+      for (const base of WEATHER_API_BASES) {
+        try {
+          const res = await axios.get(`${base}/weather/now`, {
+            params: { location, key: apiKey },
+            timeout: 10000,
+          });
 
-        const data = res.data;
-        if (data.code !== "200") {
-          throw new Error(data.message || "Weather API error");
+          const data = res.data;
+          if (data.code !== "200") {
+            throw new Error(data.message || "Weather API error");
+          }
+
+          const now = data.now;
+          return {
+            success: true,
+            temp: parseInt(now.temp),
+            condition: conditionMap[now.icon] || "cloudy",
+            text: now.text,
+            city: data.location?.name || "Shanghai",
+            wind: `${now.windDir} ${now.windScale}级`,
+            humidity: parseInt(now.humidity),
+            icon: now.icon,
+          };
+        } catch (err: any) {
+          lastErr = err;
+          const isInvalidHost = err?.response?.data?.error?.type?.includes("invalid-host");
+          if (!isInvalidHost) break; // 不是 Host 问题，直接跳出
+          console.error(`[weather] ${base} failed with Invalid Host, trying fallback...`);
         }
-
-        const now = data.now;
-        return {
-          success: true,
-          temp: parseInt(now.temp),
-          condition: conditionMap[now.icon] || "cloudy",
-          text: now.text,
-          city: data.location?.name || "Shanghai",
-          wind: `${now.windDir} ${now.windScale}级`,
-          humidity: parseInt(now.humidity),
-          icon: now.icon,
-        };
-      } catch (err: any) {
-        console.error("[weather] error:", err?.message || err);
-        return {
-          success: false,
-          temp: 18,
-          condition: "rainy",
-          text: "小雨",
-          city: "Shanghai",
-          wind: "3级",
-          humidity: 78,
-        };
       }
+
+      console.error("[weather] error:", lastErr?.message || lastErr);
+      return {
+        success: false,
+        temp: 18,
+        condition: "rainy",
+        text: "小雨",
+        city: "Shanghai",
+        wind: "3级",
+        humidity: 78,
+      };
     }),
 
   cityLookup: publicQuery
@@ -84,25 +98,32 @@ export const weatherRouter = createRouter({
       const apiKey = process.env.WEATHER_API_KEY || "";
       if (!apiKey) return { success: false, cities: [] };
 
-      try {
-        const res = await axios.get(`${GEO_API_BASE}/city/lookup`, {
-          params: { location: input.query, key: apiKey, number: 5 },
-          timeout: 10000,
-        });
-        const data = res.data;
-        if (data.code !== "200") return { success: false, cities: [] };
+      let lastErr: any = null;
+      for (const base of GEO_API_BASES) {
+        try {
+          const res = await axios.get(`${base}/city/lookup`, {
+            params: { location: input.query, key: apiKey, number: 5 },
+            timeout: 10000,
+          });
+          const data = res.data;
+          if (data.code !== "200") return { success: false, cities: [] };
 
-        return {
-          success: true,
-          cities: (data.location || []).map((loc: any) => ({
-            id: loc.id,
-            name: loc.name,
-            country: loc.country,
-            adm1: loc.adm1,
-          })),
-        };
-      } catch {
-        return { success: false, cities: [] };
+          return {
+            success: true,
+            cities: (data.location || []).map((loc: any) => ({
+              id: loc.id,
+              name: loc.name,
+              country: loc.country,
+              adm1: loc.adm1,
+            })),
+          };
+        } catch (err: any) {
+          lastErr = err;
+          const isInvalidHost = err?.response?.data?.error?.type?.includes("invalid-host");
+          if (!isInvalidHost) break;
+          console.error(`[weather] ${base} failed with Invalid Host, trying fallback...`);
+        }
       }
+      return { success: false, cities: [] };
     }),
 });
