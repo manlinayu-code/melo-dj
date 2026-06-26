@@ -42,20 +42,23 @@ if (env.isProduction) {
     process.exit(1);
   });
 
+  serveStaticFiles(app);
+
+  const port = parseInt(process.env.PORT || "3000", 10);
+  console.log(`[boot] Starting HTTP server on port ${port}...`);
+  serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`[boot] Server running on port ${(info as any)?.port || port}`);
+  });
+
   runAutoMigrate()
     .then(() => {
-      console.log("[boot] Migration step done, serving static files...");
-      serveStaticFiles(app);
-      startCron();
-      const port = parseInt(process.env.PORT || "3000");
-      console.log(`[boot] Starting HTTP server on port ${port}...`);
-      serve({ fetch: app.fetch, port }, (info) => {
-        console.log(`[boot] Server running on port ${(info as any)?.port || port}`);
-      });
+      console.log("[boot] Migration step done");
     })
     .catch((err) => {
-      console.error("[boot] Failed to start server:", err);
-      process.exit(1);
+      console.error("[boot] Migration step failed; continuing to serve app:", err);
+    })
+    .finally(() => {
+      startCron();
     });
 } else {
   console.log("[boot] Not production, skipping server start");

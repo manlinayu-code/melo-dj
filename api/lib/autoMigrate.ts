@@ -1,6 +1,18 @@
 import postgres from "postgres";
 import { env } from "./env";
 
+function getMigrationHint(err: any): string {
+  if (err?.code === "ENOTFOUND") {
+    return [
+      `Host "${err.hostname}" could not be resolved.`,
+      "On Render, use the Supabase transaction pooler URL instead of the direct db.<project-ref>.supabase.co host.",
+      "Expected format: postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres",
+    ].join(" ");
+  }
+
+  return "";
+}
+
 /**
  * Lightweight auto-migration for PostgreSQL/Supabase.
  * Schema DDL is handled by drizzle-kit push (render.yaml preDeployCommand).
@@ -17,7 +29,11 @@ export async function runAutoMigrate() {
   }
 
   console.log("[migrate] Connecting to PostgreSQL...");
-  const sql = postgres(env.databaseUrl);
+  const sql = postgres(env.databaseUrl, {
+    connect_timeout: 10,
+    idle_timeout: 5,
+    max: 1,
+  });
 
   try {
     // Check if moods table exists (schema was pushed by drizzle-kit)
@@ -54,6 +70,10 @@ export async function runAutoMigrate() {
     console.log("[migrate] Auto-migration completed");
   } catch (err: any) {
     console.error("[migrate] Migration failed:", err.message);
+    const hint = getMigrationHint(err);
+    if (hint) {
+      console.error("[migrate] Hint:", hint);
+    }
     throw err;
   } finally {
     await sql.end();
