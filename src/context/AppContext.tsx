@@ -523,6 +523,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [lyrics.length]);
 
+  // ---- Ducking: lower music when DJ speaks ----
+  const duckMusic = useCallback(() => {
+    const musicGain = (sourceRef as any).musicGain as GainNode | undefined;
+    const ctx = audioCtxRef.current;
+    if (!musicGain || !ctx) return;
+    const t = ctx.currentTime;
+    musicGain.gain.cancelScheduledValues(t);
+    musicGain.gain.linearRampToValueAtTime(0.15, t + 0.4);
+  }, []);
+
+  const restoreMusic = useCallback(() => {
+    const musicGain = (sourceRef as any).musicGain as GainNode | undefined;
+    const ctx = audioCtxRef.current;
+    if (!musicGain || !ctx) return;
+    const t = ctx.currentTime;
+    musicGain.gain.cancelScheduledValues(t);
+    musicGain.gain.linearRampToValueAtTime(0.7, t + 0.6);
+  }, []);
+
   // ---- Podcast segment auto-play (P3) ----
   useEffect(() => {
     if (!podcastMode || !podcastScript || !isPlaying) return;
@@ -873,25 +892,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const stopVoiceInput = useCallback(() => {
     if (recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); }
-  }, []);
-
-  // ---- Ducking: lower music when DJ speaks ----
-  const duckMusic = useCallback(() => {
-    const musicGain = (sourceRef as any).musicGain as GainNode | undefined;
-    const ctx = audioCtxRef.current;
-    if (!musicGain || !ctx) return;
-    const t = ctx.currentTime;
-    musicGain.gain.cancelScheduledValues(t);
-    musicGain.gain.linearRampToValueAtTime(0.15, t + 0.4);
-  }, []);
-
-  const restoreMusic = useCallback(() => {
-    const musicGain = (sourceRef as any).musicGain as GainNode | undefined;
-    const ctx = audioCtxRef.current;
-    if (!musicGain || !ctx) return;
-    const t = ctx.currentTime;
-    musicGain.gain.cancelScheduledValues(t);
-    musicGain.gain.linearRampToValueAtTime(0.7, t + 0.6);
   }, []);
 
   // ---- TTS — routes through tts.speak dispatcher ----
