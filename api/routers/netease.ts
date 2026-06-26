@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { createRequire } from "module";
 
 // @neteasecloudmusicapienhanced/api is a CommonJS package.
-const require = createRequire(import.meta.url);
+const require = createRequire(`${process.cwd()}/package.json`);
 // @ts-ignore
 const neteaseApi = require("@neteasecloudmusicapienhanced/api");
 

@@ -7,7 +7,7 @@ import { gated } from "../lib/neteaseShared";
 import { inferMoodNames, tagTrack } from "./mood";
 
 import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+const require = createRequire(`${process.cwd()}/package.json`);
 // @ts-ignore
 const neteaseApi = require("@neteasecloudmusicapienhanced/api");
 

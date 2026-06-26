@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { gated } from "./neteaseShared";
 import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
+const require = createRequire(`${process.cwd()}/package.json`);
 // @ts-ignore
 const neteaseApi = require("@neteasecloudmusicapienhanced/api");
 
