@@ -16,10 +16,10 @@ export default function Toast({ message, visible }: ToastProps) {
           transition={{ duration: 0.3, ease: 'easeOut' }}
           className="fixed top-4 left-4 right-4 z-[60] flex justify-center"
         >
-          <div className="glass-strong px-5 py-3 rounded-xl border-l-[3px] border-l-melo-green flex items-center gap-3 max-w-md">
-            <div className="w-5 h-5 rounded-full bg-melo-green/20 flex items-center justify-center">
+          <div className="glass-strong px-5 py-3 rounded-xl border-l-[3px] border-l-melo-blue flex items-center gap-3 max-w-md">
+            <div className="w-5 h-5 rounded-full bg-melo-blue/20 flex items-center justify-center">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6L5 9L10 3" stroke="#00d084" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M2 6L5 9L10 3" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
             <span className="text-sm text-melo-text">{message}</span>

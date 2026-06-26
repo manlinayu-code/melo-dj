@@ -49,7 +49,7 @@ export function DJMessageBubble({ message, isLatest }: { message: { sender: 'use
   if (isDj && isLatest) {
     return (
       <div className="flex gap-3">
-        <div className="w-0.5 bg-melo-green/30 rounded-full shrink-0" />
+        <div className="w-0.5 bg-melo-blue/30 rounded-full shrink-0" />
         <div className="text-[15px] leading-[1.7] text-melo-text/90">
           <Typewriter text={message.text} speed={35} />
         </div>
@@ -59,12 +59,12 @@ export function DJMessageBubble({ message, isLatest }: { message: { sender: 'use
 
   return (
     <div className={`flex gap-3 ${isDj ? '' : 'justify-end'}`}>
-      {isDj && <div className="w-0.5 bg-melo-green/30 rounded-full shrink-0" />}
+      {isDj && <div className="w-0.5 bg-melo-blue/30 rounded-full shrink-0" />}
       <div
         className={`max-w-[85%] text-[15px] leading-[1.7] px-4 py-3 rounded-2xl ${
           isDj
             ? 'bg-melo-card/60 border border-white/5 text-melo-text/80'
-            : 'bg-melo-green/15 border border-melo-green/20 text-melo-text'
+            : 'bg-melo-blue/15 border border-melo-blue/20 text-melo-text'
         }`}
       >
         {message.text}

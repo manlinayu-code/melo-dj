@@ -8,6 +8,8 @@ import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { runAutoMigrate } from "./lib/autoMigrate";
+import { registerAudioProxy } from "./lib/audioProxy";
+import { startCron } from "./lib/syncScheduler";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -21,6 +23,7 @@ app.use("/api/trpc/*", async (c) => {
   });
 });
 app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
+registerAudioProxy(app);
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 export default app;
@@ -43,6 +46,7 @@ if (env.isProduction) {
     .then(() => {
       console.log("[boot] Migration step done, serving static files...");
       serveStaticFiles(app);
+      startCron();
       const port = parseInt(process.env.PORT || "3000");
       console.log(`[boot] Starting HTTP server on port ${port}...`);
       serve({ fetch: app.fetch, port }, (info) => {

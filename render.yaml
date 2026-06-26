@@ -11,9 +11,11 @@ services:
       - key: PORT
         value: "3000"
       - key: DATABASE_URL
-        fromDatabase:
-          name: melo-dj-db
-          property: connectionString
+        sync: false
+        # Supabase PostgreSQL connection string
+        # Format: postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+      - key: JWT_SECRET
+        generateValue: true
       - key: APP_ID
         generateValue: true
       - key: APP_SECRET
@@ -24,10 +26,13 @@ services:
         sync: false
       - key: FISH_AUDIO_API_KEY
         sync: false
+      - key: MIMO_API_KEY
+        sync: false
     healthCheckPath: /health
-    preDeployCommand: npm run db:push
 
-  - type: mysql
-    name: melo-dj-db
-    plan: free
-    databaseName: melo_dj
+  # Supabase handles PostgreSQL — no Render managed DB needed.
+  # Commented out for reference; uncomment if switching back to Render MySQL.
+  # - type: mysql
+  #   name: melo-dj-db
+  #   plan: free
+  #   databaseName: melo_dj

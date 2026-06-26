@@ -54,7 +54,7 @@ function AppContent() {
 
       <AnimatePresence mode="wait">
         {currentView === 'home' && <Home key="home" onNavigate={setCurrentView} />}
-        {currentView === 'queue' && <Queue key="queue" />}
+        {currentView === 'queue' && <Queue key="queue" onNavigate={setCurrentView} />}
         {currentView === 'chat' && <Chat key="chat" />}
         {currentView === 'profile' && <Profile key="profile" onNavigate={setCurrentView} />}
       </AnimatePresence>
@@ -74,7 +74,11 @@ function AppContent() {
       {/* Immersive Radio Mode Overlay */}
       <AnimatePresence>
         {radioMode && (
-          <RadioPlayer onClose={toggleRadioMode} />
+          <div className="fixed inset-0 z-[60] flex justify-center">
+            <div className="w-full max-w-[480px] h-full relative">
+              <RadioPlayer onClose={toggleRadioMode} />
+            </div>
+          </div>
         )}
       </AnimatePresence>
     </div>

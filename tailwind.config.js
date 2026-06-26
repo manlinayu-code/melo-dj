@@ -49,17 +49,17 @@ module.exports = {
           ring: "hsl(var(--sidebar-ring))",
         },
         melo: {
-          base: "#06060a",
-          elevated: "#0f0f18",
-          card: "#161622",
-          glass: "rgba(22, 22, 34, 0.6)",
-          green: "#00d084",
-          "green-dark": "#00a86b",
+          base: "var(--melo-bg)",
+          elevated: "var(--melo-elevated)",
+          card: "var(--melo-card)",
+          glass: "var(--melo-glass)",
+          blue: "#3b82f6",
+          "blue-dark": "#2563eb",
           warm: "#ff6b6b",
           gold: "#f0c040",
-          text: "#f0f0f5",
-          "text-secondary": "#8a8a9a",
-          "text-dim": "#4a4a5a",
+          text: "var(--melo-text)",
+          "text-secondary": "var(--melo-text-secondary)",
+          "text-dim": "var(--melo-text-dim)",
         },
       },
       fontFamily: {
@@ -76,8 +76,8 @@ module.exports = {
       },
       boxShadow: {
         xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
-        glow: "0 0 20px rgba(0, 208, 132, 0.15), 0 0 60px rgba(0, 208, 132, 0.05)",
-        "glow-strong": "0 0 30px rgba(0, 208, 132, 0.25), 0 0 80px rgba(0, 208, 132, 0.1)",
+        glow: "0 0 20px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.05)",
+        "glow-strong": "0 0 30px rgba(59, 130, 246, 0.25), 0 0 80px rgba(59, 130, 246, 0.1)",
       },
       keyframes: {
         "accordion-down": {

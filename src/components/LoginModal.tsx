@@ -5,7 +5,7 @@ import { X, User, Lock, LogIn, UserPlus } from "lucide-react";
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: (name: string, password: string) => Promise<void>;
+  onLogin: (name: string, password: string, rememberMe: boolean) => Promise<void>;
   onRegister: (name: string, password: string) => Promise<void>;
   error: string | null;
 }
@@ -14,6 +14,7 @@ export default function LoginModal({ isOpen, onClose, onLogin, onRegister, error
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -22,7 +23,7 @@ export default function LoginModal({ isOpen, onClose, onLogin, onRegister, error
     setLoading(true);
     try {
       if (mode === "login") {
-        await onLogin(name.trim(), password.trim());
+        await onLogin(name.trim(), password.trim(), rememberMe);
       } else {
         await onRegister(name.trim(), password.trim());
       }
@@ -70,7 +71,7 @@ export default function LoginModal({ isOpen, onClose, onLogin, onRegister, error
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="昵称"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-[#f0f0f5] placeholder:text-[#4a4a5a] outline-none focus:border-[#00d084]/50 transition-colors"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-[#f0f0f5] placeholder:text-[#4a4a5a] outline-none focus:border-[#3b82f6]/50 transition-colors"
                 />
               </div>
               <div className="relative">
@@ -80,9 +81,21 @@ export default function LoginModal({ isOpen, onClose, onLogin, onRegister, error
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="密码（至少4位）"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-[#f0f0f5] placeholder:text-[#4a4a5a] outline-none focus:border-[#00d084]/50 transition-colors"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-[#f0f0f5] placeholder:text-[#4a4a5a] outline-none focus:border-[#3b82f6]/50 transition-colors"
                 />
               </div>
+
+              {mode === "login" && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-[#3b82f6]"
+                  />
+                  <span className="text-xs text-[#8a8a9a]">记住我（30天）</span>
+                </label>
+              )}
 
               {error && (
                 <p className="text-xs text-[#ff6b6b] text-center">{error}</p>
@@ -91,7 +104,7 @@ export default function LoginModal({ isOpen, onClose, onLogin, onRegister, error
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-[#00d084] text-[#06060a] font-medium text-sm flex items-center justify-center gap-2 hover:bg-[#00a86b] transition-colors disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#3b82f6] text-[#06060a] font-medium text-sm flex items-center justify-center gap-2 hover:bg-[#2563eb] transition-colors disabled:opacity-50"
               >
                 {loading ? (
                   <div className="w-4 h-4 border-2 border-[#06060a] border-t-transparent rounded-full animate-spin" />
@@ -106,7 +119,7 @@ export default function LoginModal({ isOpen, onClose, onLogin, onRegister, error
             <div className="mt-4 text-center">
               <button
                 onClick={() => setMode(mode === "login" ? "register" : "login")}
-                className="text-xs text-[#8a8a9a] hover:text-[#00d084] transition-colors"
+                className="text-xs text-[#8a8a9a] hover:text-[#3b82f6] transition-colors"
               >
                 {mode === "login" ? "还没有账号？立即注册" : "已有账号？立即登录"}
               </button>

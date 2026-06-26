@@ -4,71 +4,73 @@
 
 @layer base {
   :root {
-    --background: 240 33% 3%;
-    --foreground: 240 10% 96%;
-    --card: 240 25% 8%;
-    --card-foreground: 240 10% 96%;
-    --popover: 240 25% 8%;
-    --popover-foreground: 240 10% 96%;
-    --primary: 156 100% 41%;
-    --primary-foreground: 240 33% 3%;
-    --secondary: 240 15% 12%;
-    --secondary-foreground: 240 10% 96%;
-    --muted: 240 15% 15%;
-    --muted-foreground: 240 8% 55%;
-    --accent: 156 100% 41%;
-    --accent-foreground: 240 33% 3%;
+    --background: 220 40% 4%;
+    --foreground: 220 20% 96%;
+    --card: 220 35% 8%;
+    --card-foreground: 220 20% 96%;
+    --popover: 220 35% 8%;
+    --popover-foreground: 220 20% 96%;
+    --primary: 217 90% 60%;
+    --primary-foreground: 220 40% 4%;
+    --secondary: 220 15% 12%;
+    --secondary-foreground: 220 20% 96%;
+    --muted: 220 15% 15%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 217 90% 60%;
+    --accent-foreground: 220 40% 4%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 10% 15%;
-    --input: 240 10% 15%;
-    --ring: 156 100% 41%;
+    --border: 220 10% 15%;
+    --input: 220 10% 15%;
+    --ring: 217 90% 60%;
     --radius: 0.875rem;
-    --sidebar-background: 240 25% 6%;
-    --sidebar-foreground: 240 10% 90%;
-    --sidebar-primary: 156 100% 41%;
-    --sidebar-primary-foreground: 240 33% 3%;
-    --sidebar-accent: 240 15% 12%;
-    --sidebar-accent-foreground: 240 10% 96%;
-    --sidebar-border: 240 10% 15%;
-    --sidebar-ring: 156 100% 41%;
+    --sidebar-background: 220 35% 6%;
+    --sidebar-foreground: 220 20% 90%;
+    --sidebar-primary: 217 90% 60%;
+    --sidebar-primary-foreground: 220 40% 4%;
+    --sidebar-accent: 220 15% 12%;
+    --sidebar-accent-foreground: 220 20% 96%;
+    --sidebar-border: 220 10% 15%;
+    --sidebar-ring: 217 90% 60%;
 
     /* Custom theme vars */
-    --melo-bg: #06060a;
-    --melo-text: #f0f0f5;
-    --melo-text-secondary: #8a8a9a;
-    --melo-text-dim: #4a4a5a;
-    --melo-card: #161622;
-    --melo-glass: rgba(22, 22, 34, 0.6);
-    --melo-glass-strong: rgba(22, 22, 34, 0.85);
+    --melo-bg: #060a14;
+    --melo-text: #e8ecf4;
+    --melo-text-secondary: #8a9ab0;
+    --melo-text-dim: #4a5a70;
+    --melo-card: #0f172a;
+    --melo-elevated: #0c1220;
+    --melo-glass: rgba(15, 23, 42, 0.6);
+    --melo-glass-strong: rgba(15, 23, 42, 0.85);
   }
 
   [data-theme="light"] {
-    --background: 240 20% 97%;
-    --foreground: 240 25% 12%;
+    --background: 220 30% 97%;
+    --foreground: 220 40% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 240 25% 12%;
+    --card-foreground: 220 40% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 25% 12%;
-    --primary: 156 100% 35%;
+    --popover-foreground: 220 40% 12%;
+    --primary: 217 90% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 10% 94%;
-    --secondary-foreground: 240 25% 12%;
-    --muted: 240 10% 92%;
-    --muted-foreground: 240 8% 45%;
-    --accent: 156 100% 35%;
+    --secondary: 220 20% 94%;
+    --secondary-foreground: 220 40% 12%;
+    --muted: 220 20% 92%;
+    --muted-foreground: 220 15% 45%;
+    --accent: 217 90% 50%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 10% 88%;
-    --input: 240 10% 88%;
-    --ring: 156 100% 35%;
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 217 90% 50%;
 
-    --melo-bg: #f0f0f5;
-    --melo-text: #1a1a2e;
-    --melo-text-secondary: #4a4a5a;
-    --melo-text-dim: #8a8a9a;
+    --melo-bg: #f0f4ff;
+    --melo-text: #0f172a;
+    --melo-text-secondary: #4a5a70;
+    --melo-text-dim: #8a9ab0;
     --melo-card: #ffffff;
+    --melo-elevated: #e8eeff;
     --melo-glass: rgba(255, 255, 255, 0.7);
     --melo-glass-strong: rgba(255, 255, 255, 0.9);
   }
@@ -91,7 +93,7 @@
   }
 
   [data-theme="light"] body {
-    background-image: radial-gradient(circle, rgba(0,0,0,0.04) 1px, transparent 1px);
+    background-image: radial-gradient(circle, rgba(0,0,0,0.03) 1px, transparent 1px);
   }
 }
 
@@ -123,10 +125,10 @@
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 20px rgba(0, 208, 132, 0.15), 0 0 60px rgba(0, 208, 132, 0.05);
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.05);
   }
   50% {
-    box-shadow: 0 0 30px rgba(0, 208, 132, 0.25), 0 0 80px rgba(0, 208, 132, 0.1);
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.25), 0 0 80px rgba(59, 130, 246, 0.1);
   }
 }
 
@@ -171,6 +173,39 @@
     opacity: 0.8;
     transform: scale(1.5);
   }
+}
+
+@keyframes ripple-burst {
+  0% { transform: scale(0); opacity: 0.45; }
+  60% { opacity: 0.18; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Subtle ripple on tap. Centered radial fades outward; uses pseudo-element so we don't need extra DOM. */
+.ripple {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.ripple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 120%;
+  aspect-ratio: 1 / 1;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0) 60%);
+  transform: scale(0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.ripple:active::after {
+  animation: ripple-burst 0.55s ease-out;
+}
+[data-theme="light"] .ripple::after {
+  background: radial-gradient(circle, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0) 60%);
 }
 
 .animate-breathe {

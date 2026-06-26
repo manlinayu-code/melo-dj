@@ -53,21 +53,21 @@ export default function DockNav({ current, onChange }: DockNavProps) {
                 onMouseLeave={() => setHovered(null)}
                 className="relative flex flex-col items-center justify-center w-14 h-14 rounded-[22px] transition-all duration-300"
                 style={{
-                  background: isHover && !isActive ? 'rgba(0, 208, 132, 0.08)' : 'transparent',
+                  background: isHover && !isActive ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
                   transform: isHover ? 'translateY(-4px)' : 'translateY(0)',
                 }}
               >
                 <Icon
                   size={22}
                   className={`transition-colors duration-300 ${
-                    isActive ? 'text-melo-green' : 'text-melo-text-secondary'
+                    isActive ? 'text-melo-blue' : 'text-melo-text-secondary'
                   }`}
                 />
                 {isActive && (
                   <motion.div
                     layoutId="nav-indicator"
-                    className="absolute bottom-1 w-1 h-1 rounded-full bg-melo-green"
-                    style={{ boxShadow: '0 0 8px rgba(0, 208, 132, 0.5)' }}
+                    className="absolute bottom-1 w-1 h-1 rounded-full bg-melo-blue"
+                    style={{ boxShadow: '0 0 8px rgba(59, 130, 246, 0.5)' }}
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                   />
                 )}

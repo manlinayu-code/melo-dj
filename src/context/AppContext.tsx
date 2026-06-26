@@ -1,15 +1,34 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import type { Track, DJProfile, ChatMessage, WeatherInfo, EnvVibe } from "@/types";
+import { detectBpmFromUrl } from "@/lib/bpmDetector";
 
 // ====== Safe API helper ======
 function getToken() {
   return localStorage.getItem("melo_token");
 }
 
+function getTokenExp(): number | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch { return null; }
+}
+
+function getOrCreateSessionId(): string {
+  let id = localStorage.getItem("melo_session_id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("melo_session_id", id);
+  }
+  return id;
+}
+
 async function trpcGet(procedure: string, input?: Record<string, unknown>) {
   let url = `/api/trpc/${procedure}`;
   if (input) {
-    url += `?input=${encodeURIComponent(JSON.stringify({ json: input }))}`;
+    url += `?input=${encodeURIComponent(JSON.stringify(input))}`;
   }
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -32,7 +51,7 @@ async function trpcPost(procedure: string, input: Record<string, unknown>) {
     method: "POST",
     headers,
     credentials: "include",
-    body: JSON.stringify({ json: input }),
+    body: JSON.stringify(input),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -95,6 +114,11 @@ interface AppState {
   lyrics: LyricLine[];
   currentLyricIndex: number;
   neteaseSession: NeteaseSession | null;
+  ttsProvider: string;
+  podcastMode: boolean;
+  podcastScript: { segments: Array<{ id: string; startSec: number; text: string; kind: string; audioBase64?: string; audioFormat?: string }>; source?: string } | null;
+  podcastLoading: boolean;
+  podcastActiveSegId: string | null;
 }
 
 interface AppActions {
@@ -120,17 +144,23 @@ interface AppActions {
   stopVoiceInput: () => void;
   fetchWeather: () => Promise<void>;
   playFromRecommendation: (rec: Recommendation) => Promise<void>;
-  login: (name: string, password: string) => Promise<void>;
+  login: (name: string, password: string, rememberMe?: boolean) => Promise<void>;
   register: (name: string, password: string) => Promise<void>;
   logout: () => void;
   openLoginModal: () => void;
   closeLoginModal: () => void;
   setTheme: (t: "dark" | "light") => void;
+  setTtsProvider: (provider: string) => void;
+  togglePodcastMode: () => void;
+  duckMusic: () => void;
+  restoreMusic: () => void;
   bindNetease: (phone: string, password: string) => Promise<void>;
   unbindNetease: () => Promise<void>;
   fetchLyrics: (neteaseId: number) => Promise<void>;
+  likeOnNetease: (neteaseId: number, like: boolean) => Promise<void>;
   seekTo: (position: number) => void;
   importPlaylist: (playlistId: string | number) => Promise<void>;
+  syncLikes: () => Promise<void>;
 }
 
 const defaultTracks: Track[] = [
@@ -182,7 +212,6 @@ const AppContext = createContext<(AppState & AppActions) | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---- Theme ----
-// ---- Theme ----
   const [theme, setThemeState] = useState<"dark" | "light">(() => {
     const saved = localStorage.getItem("melo_theme") as "dark" | "light" | null;
     return saved || "dark";
@@ -199,12 +228,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   // ---- Auth ----
-  // ---- Auth ----
   const [user, setUser] = useState<User | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // ---- State ----
   // ---- State ----
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(defaultTracks[0]);
@@ -228,8 +255,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [currentLyricIndex, setCurrentLyricIndex] = useState(0);
   const [neteaseSession, setNeteaseSession] = useState<NeteaseSession | null>(null);
+  const [ttsProvider, setTtsProvider] = useState("auto");
+  const [podcastMode, setPodcastMode] = useState(false);
+  const [podcastScript, setPodcastScript] = useState<{ segments: Array<{ id: string; startSec: number; text: string; kind: string; audioBase64?: string; audioFormat?: string }>; source?: string } | null>(null);
+  const [podcastLoading, setPodcastLoading] = useState(false);
+  const [podcastActiveSegId, setPodcastActiveSegId] = useState<string | null>(null);
 
-  // ---- Refs ----
   // ---- Refs ----
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -239,8 +270,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionRef = useRef<any>(null);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const podcastAudioRef = useRef<HTMLAudioElement | null>(null);
+  const playedSegIdsRef = useRef<Set<string>>(new Set());
+  const userRef = useRef<User | null>(null);
+  const prefDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPlayingRef = useRef(isPlaying);
+  const sendMessageRef = useRef<(text: string) => Promise<void>>(async () => {});
 
-  // ---- Toast ----
+  useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+
+  // Reset played segment tracking when podcast script loads
+  useEffect(() => {
+    if (podcastScript) playedSegIdsRef.current.clear();
+  }, [podcastScript]);
+
   // ---- Toast ----
   const showToast = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -263,10 +308,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---- Load chat history ----
-  // ---- Load chat history ----
   const loadChatHistory = useCallback(async () => {
+    const token = getToken();
     try {
-      const data = await trpcGet("chat.history", { limit: 50 });
+      const data = await trpcGet("chat.history", {
+        limit: 50,
+        sessionId: token ? undefined : getOrCreateSessionId(),
+      });
       if (data?.messages && Array.isArray(data.messages) && data.messages.length > 0) {
         const history: ChatMessage[] = data.messages.map((m: any) => ({
           id: m.id,
@@ -276,7 +324,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           type: m.type,
           recommendation: m.recommendation,
         }));
-        // Keep welcome messages if no history
         setMessages((prev) => history.length > 0 ? history : prev);
       }
     } catch (err) {
@@ -289,6 +336,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const token = getToken();
     if (!token) return;
     try {
+      // Refresh token if expiring within 1 day
+      const exp = getTokenExp();
+      if (exp !== null && exp - Date.now() / 1000 < 86400) {
+        try {
+          const refreshed = await trpcPost("auth.refreshSession", {});
+          if (refreshed?.token) {
+            localStorage.setItem("melo_token", refreshed.token);
+          }
+        } catch { /* continue with existing token */ }
+      }
       const data = await trpcGet("auth.me");
       if (data?.user) {
         setUser(data.user);
@@ -299,15 +356,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   useEffect(() => { loadUser(); }, [loadUser]);
 
-  const login = useCallback(async (name: string, password: string) => {
+  const login = useCallback(async (name: string, password: string, rememberMe = false) => {
     setAuthError(null);
     try {
-      const data = await trpcPost("auth.login", { name, password });
+      const data = await trpcPost("auth.login", { name, password, rememberMe });
       if (data?.success && data.token) {
         localStorage.setItem("melo_token", data.token);
         setUser(data.user);
         setShowLoginModal(false);
-        // Load history after login
         loadChatHistory();
       } else {
         setAuthError(data?.error || "登录失败");
@@ -341,36 +397,107 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const openLoginModal = useCallback(() => { setAuthError(null); setShowLoginModal(true); }, []);
   const closeLoginModal = useCallback(() => { setShowLoginModal(false); }, []);
 
-  // ---- Audio element + Web Audio API ----
+  // ---- Anonymous queue: hydrate from localStorage on mount (no token) ----
+  useEffect(() => {
+    if (getToken()) return;
+    try {
+      const raw = localStorage.getItem("melo_queue");
+      if (raw) {
+        const saved = JSON.parse(raw) as Track[];
+        if (Array.isArray(saved) && saved.length > 0) setQueue(saved);
+      }
+    } catch {}
+  }, []);
+
+  // ---- Anonymous queue: persist to localStorage whenever queue changes ----
+  useEffect(() => {
+    if (user) return;
+    try { localStorage.setItem("melo_queue", JSON.stringify(queue)); } catch {}
+  }, [user, queue]);
+
+  // ---- Logged-in: hydrate queue + preferences when user changes ----
+  useEffect(() => {
+    if (!user) return;
+    trpcGet("playlist.getQueue")
+      .then((data) => {
+        if (data?.queue && Array.isArray(data.queue) && data.queue.length > 0) {
+          const tracks: Track[] = data.queue.map((r: any) => ({
+            id: r.trackId || `q-${r.id}`,
+            title: r.trackTitle,
+            artist: r.artist,
+            album: r.album || "",
+            duration: r.durationSec || 0,
+            cover: r.coverUrl || "/cover-if.jpg",
+            genre: ["Queue"],
+            isFav: false,
+            neteaseId: r.neteaseId ?? undefined,
+          }));
+          setQueue(tracks);
+        }
+      })
+      .catch(() => {});
+
+    trpcGet("playlist.getPreferences")
+      .then((data) => {
+        if (!data?.preferences) return;
+        const p = data.preferences;
+        setEnvVibe((v) => ({
+          ...v,
+          mood: p.moodDefault || v.mood,
+          intensity: p.intensityDefault ?? v.intensity,
+          radioMode: p.radioMode ?? v.radioMode,
+        }));
+        if (p.theme === "dark" || p.theme === "light") setTheme(p.theme);
+        setTtsProvider(p.ttsProvider || "auto");
+      })
+      .catch(() => {});
+  }, [user?.id]);
+
+  // ---- Debounced preference save when envVibe changes (logged-in only) ----
+  useEffect(() => {
+    if (!userRef.current) return;
+    if (prefDebounceRef.current) clearTimeout(prefDebounceRef.current);
+    prefDebounceRef.current = setTimeout(() => {
+      if (!userRef.current) return;
+      trpcPost("playlist.setPreferences", {
+        moodDefault: envVibe.mood,
+        intensityDefault: envVibe.intensity,
+        radioMode: envVibe.radioMode,
+      }).catch(() => {});
+    }, 1000);
+  }, [envVibe.mood, envVibe.intensity, envVibe.radioMode]);
+
   // ---- Audio element + Web Audio API ----
   useEffect(() => {
     const audio = new Audio();
     audio.crossOrigin = "anonymous";
     audioRef.current = audio;
 
-    // Initialize Web Audio API
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioCtx();
       audioCtxRef.current = ctx;
+
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
       analyserRef.current = analyser;
       setAudioAnalyser(analyser);
 
-      // Connect audio element to analyser
+      const musicGain = ctx.createGain();
+      musicGain.gain.value = 0.7;
       const source = ctx.createMediaElementSource(audio);
-      sourceRef.current = source;
-      source.connect(analyser);
+      source.connect(musicGain);
+      musicGain.connect(analyser);
       analyser.connect(ctx.destination);
+      (sourceRef as any).musicGain = musicGain;
+      sourceRef.current = source;
     } catch (err) {
       console.warn("Web Audio API not available:", err);
     }
 
     const onTimeUpdate = () => {
       setProgress(audio.currentTime);
-      // Update lyric index
       if (lyrics.length > 0) {
         const idx = lyrics.findIndex((l, i) => {
           const next = lyrics[i + 1];
@@ -396,7 +523,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [lyrics.length]);
 
-  // ---- Play/Pause sync ----
+  // ---- Podcast segment auto-play (P3) ----
+  useEffect(() => {
+    if (!podcastMode || !podcastScript || !isPlaying) return;
+    const segs = podcastScript.segments;
+    if (!segs || segs.length === 0) return;
+
+    // Find the active segment (the one whose startSec we just passed)
+    const currentTime = progress;
+    let active: typeof segs[0] | null = null;
+    for (let i = segs.length - 1; i >= 0; i--) {
+      if (currentTime >= segs[i].startSec) {
+        active = segs[i];
+        break;
+      }
+    }
+    if (!active) return;
+
+    setPodcastActiveSegId(active.id);
+
+    // Don't replay already-played segments
+    if (playedSegIdsRef.current.has(active.id)) return;
+    if (!active.audioBase64) return; // No TTS audio available
+
+    playedSegIdsRef.current.add(active.id);
+
+    const mime = active.audioFormat === "wav" ? "audio/wav" : "audio/mp3";
+    const audio = new Audio(`data:${mime};base64,${active.audioBase64}`);
+    podcastAudioRef.current = audio;
+    audio.volume = 0.8;
+
+    audio.onplay = () => duckMusic();
+    audio.onended = () => { restoreMusic(); podcastAudioRef.current = null; };
+    audio.onerror = () => { restoreMusic(); podcastAudioRef.current = null; };
+
+    audio.play().catch(() => { restoreMusic(); podcastAudioRef.current = null; });
+  }, [podcastMode, podcastScript, isPlaying, progress, duckMusic, restoreMusic]);
+
   // ---- Play/Pause sync ----
   useEffect(() => {
     const audio = audioRef.current;
@@ -409,34 +572,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isPlaying]);
 
   // ---- Volume sync ----
-  // ---- Volume sync ----
   useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
 
-  // ---- Load track URL from Netease ----
   // ---- Load track URL from Netease ----
   const loadTrackUrl = useCallback(async (track: Track) => {
     if (!track.neteaseId) return;
     try {
-      // Try to resume AudioContext (browsers suspend it until user gesture)
       if (audioCtxRef.current?.state === "suspended") {
         await audioCtxRef.current.resume();
       }
 
       const data = await trpcGet("netease.songUrl", { id: track.neteaseId });
       const songs = data?.data || [];
-      // Find first valid URL, prefer higher bitrate
       const sorted = [...songs].sort((a: any, b: any) => (b.br || 0) - (a.br || 0));
       const valid = sorted.find((s: any) => s?.url);
 
       if (valid?.url && audioRef.current) {
-        audioRef.current.src = valid.url;
+        // Route through our audio proxy: netease CDN does not return CORS headers,
+        // and `crossOrigin="anonymous"` would otherwise mute the element via Web Audio.
+        audioRef.current.src = `/api/audio/proxy?url=${encodeURIComponent(valid.url)}`;
         audioRef.current.volume = volume;
-        if (isPlaying) {
+        // Use ref to check latest isPlaying state (avoid stale closure)
+        if (isPlayingRef.current) {
           audioRef.current.play().catch((err) => {
             console.error("Play error:", err);
-            // Auto-pause if autoplay blocked
             setIsPlaying(false);
           });
+        }
+
+        // Fire-and-forget BPM analysis (don't block playback)
+        if (track.neteaseId) {
+          const rawUrl = valid.url;
+          const neteaseId = track.neteaseId;
+          detectBpmFromUrl(rawUrl).then((result) => {
+            if (result && result.confidence > 0.3) {
+              console.log(`[bpm] track ${neteaseId} → ${result.bpm} BPM (conf=${result.confidence.toFixed(2)})`);
+              trpcGet("mood.autoTag", {
+                tracks: [{ neteaseId, genres: [], artist: track.artist, durationSec: track.duration, bpm: result.bpm }],
+              }).catch(() => {});
+            }
+          }).catch(() => {});
         }
       } else {
         showToast("这首歌暂时无法播放，试试下一首");
@@ -445,9 +620,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error("loadTrackUrl error:", err);
       showToast("音频加载失败");
     }
-  }, [volume, isPlaying]);
+  }, [volume]);
 
-  // ---- Fetch lyrics ----
   // ---- Fetch lyrics ----
   const fetchLyrics = useCallback(async (neteaseId: number) => {
     if (!neteaseId) return;
@@ -458,6 +632,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const parsed = parseLRC(lrcText);
         setLyrics(parsed);
         setCurrentLyricIndex(0);
+        // L3: Fire-and-forget lyric sentiment mood tagging
+        // Extract plain text from parsed lyrics for analysis
+        const plainText = parsed.map((l) => l.text).join(" ");
+        if (plainText.trim()) {
+          trpcGet("mood.autoTag", {
+            tracks: [{ neteaseId, genres: [], lyrics: plainText }],
+          }).catch(() => {}); // fire-and-forget, don't block playback
+        }
       } else {
         setLyrics([]);
       }
@@ -467,7 +649,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // ---- Netease bind/unbind ----
   // ---- Netease bind/unbind ----
   const bindNetease = useCallback(async (phone: string, password: string) => {
     try {
@@ -498,7 +679,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // ---- Seek ----
+  // ---- Like / Unlike on Netease ----
+  const likeOnNetease = useCallback(async (neteaseId: number, like: boolean) => {
+    if (!neteaseId || !neteaseSession) {
+      showToast("请先绑定网易云账号");
+      return;
+    }
+    try {
+      const data = await trpcPost("netease.likeTrack", { id: neteaseId, like });
+      if (data?.success) {
+        showToast(like ? `已添加到「我喜欢」` : `已取消喜欢`);
+        // Sync local isFav state for tracks with matching neteaseId
+        setQueue((q) => (q || []).map((t) => (t.neteaseId === neteaseId ? { ...t, isFav: like } : t)));
+        setCurrentTrack((t) => (t && t.neteaseId === neteaseId ? { ...t, isFav: like } : t));
+      } else {
+        showToast(data?.error || "操作失败");
+      }
+    } catch (err: any) {
+      showToast(err.message || "操作失败");
+    }
+  }, [neteaseSession, showToast]);
+
   // ---- Seek ----
   const seekTo = useCallback((position: number) => {
     const audio = audioRef.current;
@@ -509,45 +710,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [duration]);
 
   // ---- Import Playlist ----
-  // ---- Import Playlist ----
   const importPlaylist = useCallback(async (playlistId: string | number) => {
     if (!playlistId) return;
     try {
       showToast("正在导入歌单...");
-      const data = await trpcGet("netease.playlist", { id: playlistId });
-      const tracks = data?.playlist?.tracks;
-      if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
-        showToast("歌单为空或获取失败");
-        return;
-      }
-      const newTracks: Track[] = tracks
-        .filter((s: any) => s && s.id)
-        .map((s: any, i: number) => ({
-          id: `pl-${s.id}-${i}`,
-          title: s.name || "未知",
-          artist: Array.isArray(s.ar) ? s.ar.map((a: any) => a?.name || "").join(", ") : "未知",
-          album: s.al?.name || "",
-          duration: Math.floor((s.dt || 0) / 1000),
-          cover: s.al?.picUrl || "/cover-if.jpg",
-          genre: ["Playlist"],
-          isFav: false,
-          neteaseId: s.id,
-        }));
-      if (newTracks.length > 0) {
-        setQueue((q) => [...newTracks, ...(q || [])]);
-        if (!currentTrack) {
-          setCurrentTrack(newTracks[0]);
-          setIsPlaying(true);
-        }
-        showToast(`已导入 ${newTracks.length} 首歌到队列`);
+      // Call backend library.importPlaylist which handles:
+      // 1. Fetch playlist_detail + song_detail batch enrichment
+      // 2. Store in local_tracks with genre (from playlist tags)
+      // 3. Auto-tag moods with enriched genre data
+      const data = await trpcPost("library.importPlaylist", { playlistId });
+      if (data?.success) {
+        showToast(`已导入「${data.playlistName}」· ${data.imported} 首歌 · mood 标注 ${data.tagged}`);
+      } else {
+        showToast(data?.error || "歌单为空或获取失败");
       }
     } catch (err: any) {
       console.error("importPlaylist error:", err);
-      showToast("导入歌单失败");
+      showToast(err?.message || "导入歌单失败");
     }
-  }, [currentTrack, showToast]);
+  }, [showToast]);
 
-  // Load netease session on mount
   // Load netease session on mount
   useEffect(() => {
     if (!user) { setNeteaseSession(null); return; }
@@ -566,14 +748,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   // When currentTrack changes, load URL + lyrics
-  // When currentTrack changes, load URL + lyrics
   useEffect(() => {
     if (currentTrack) {
       setProgress(0);
       setDuration(0);
       loadTrackUrl(currentTrack);
       fetchLyrics(currentTrack.neteaseId || 0);
-      // Save play history if logged in
       if (user) {
         trpcPost("playlist.savePlay", {
           songId: currentTrack.id,
@@ -588,7 +768,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentTrack?.id]);
 
   // ---- Basic playback controls ----
-  // ---- Playback controls ----
   const togglePlay = useCallback(() => setIsPlaying((p) => !p), []);
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), []);
 
@@ -619,11 +798,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
   const toggleFav = useCallback((id: string) => {
-    setQueue((q) => (q || []).map((t) => (t.id === id ? { ...t, isFav: !t.isFav } : t)));
-    setCurrentTrack((t) => (t && t.id === id ? { ...t, isFav: !t.isFav } : t));
+    setQueue((q) => {
+      if (!q) return q;
+      const updated = q.map((t) => {
+        if (t.id !== id) return t;
+        // Persist to track_sync
+        if (t.neteaseId) {
+          trpcPost("sync.markFav", { neteaseId: t.neteaseId, fav: !t.isFav }).catch(() => {});
+        }
+        return { ...t, isFav: !t.isFav };
+      });
+      return updated;
+    });
+    setCurrentTrack((t) => {
+      if (!t || t.id !== id) return t;
+      if (t.neteaseId) {
+        trpcPost("sync.markFav", { neteaseId: t.neteaseId, fav: !t.isFav }).catch(() => {});
+      }
+      return { ...t, isFav: !t.isFav };
+    });
   }, []);
 
-  // ---- Voice Input (Web Speech API) ----
+  // ---- Sync likes from Netease ----
+  const syncLikes = useCallback(async () => {
+    try {
+      const data = await trpcPost("sync.reverseLikes", {});
+      if (data?.success) {
+        showToast(`同步完成：${data.synced} 首喜欢的歌已标记`);
+      } else {
+        showToast(data?.error || "同步失败");
+      }
+    } catch (err: any) {
+      console.error("syncLikes error:", err);
+      showToast(err?.message || "同步失败");
+    }
+  }, [showToast]);
+
   // ---- Voice Input (Web Speech API) ----
   const startVoiceInput = useCallback(() => {
     const w = window as any;
@@ -638,10 +848,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     recognition.interimResults = false;
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => { setIsListening(false); showToast("语音识别失败，请重试"); };
+    recognition.onerror = (event: any) => {
+      setIsListening(false);
+      const code = event.error as string;
+      if (code === "not-allowed") {
+        showToast("麦克风权限被拒绝，请检查浏览器权限设置");
+      } else if (code === "no-speech") {
+        showToast("没有检测到语音，请再试一次");
+      } else if (code === "network") {
+        showToast("语音识别网络错误，请检查网络连接");
+      } else if (code === "aborted") {
+        // User cancelled, no toast needed
+      } else {
+        showToast(`语音识别失败 (${code})`);
+      }
+    };
     recognition.onresult = (event: any) => {
       const transcript = event.results?.[0]?.[0]?.transcript;
-      if (transcript) { showToast(`语音识别: "${transcript}"`); sendMessage(transcript); }
+      if (transcript) { showToast(`语音识别: "${transcript}"`); sendMessageRef.current(transcript); }
     };
     recognitionRef.current = recognition;
     recognition.start();
@@ -651,38 +875,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); }
   }, []);
 
-  // ---- TTS (Browser + Fish.Audio fallback) ----
-  // ---- TTS (Browser + Fish.Audio fallback) ----
+  // ---- Ducking: lower music when DJ speaks ----
+  const duckMusic = useCallback(() => {
+    const musicGain = (sourceRef as any).musicGain as GainNode | undefined;
+    const ctx = audioCtxRef.current;
+    if (!musicGain || !ctx) return;
+    const t = ctx.currentTime;
+    musicGain.gain.cancelScheduledValues(t);
+    musicGain.gain.linearRampToValueAtTime(0.15, t + 0.4);
+  }, []);
+
+  const restoreMusic = useCallback(() => {
+    const musicGain = (sourceRef as any).musicGain as GainNode | undefined;
+    const ctx = audioCtxRef.current;
+    if (!musicGain || !ctx) return;
+    const t = ctx.currentTime;
+    musicGain.gain.cancelScheduledValues(t);
+    musicGain.gain.linearRampToValueAtTime(0.7, t + 0.6);
+  }, []);
+
+  // ---- TTS — routes through tts.speak dispatcher ----
   const speakText = useCallback((text: string) => {
     if (!text) return;
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
+    if (ttsSourceRef.current) { try { ttsSourceRef.current.disconnect(); } catch {} ttsSourceRef.current = null; }
 
-    const tryFishAudio = async () => {
-      try {
-        const data = await trpcPost("fishAudio.speak", { text: text.slice(0, 500) });
-        if (data?.success && data.audioBase64) {
-          const audio = new Audio(`data:audio/mp3;base64,${data.audioBase64}`);
-          ttsAudioRef.current = audio;
-          audio.onplay = () => setIsSpeaking(true);
-          audio.onended = () => setIsSpeaking(false);
-          audio.onerror = () => { setIsSpeaking(false); tryBrowserTTS(); };
-          audio.play().catch(() => tryBrowserTTS());
-          return;
-        }
-      } catch { /* fallback */ }
-      tryBrowserTTS();
-    };
+    const lang = radioMode ? "en-US" : "zh-CN";
+    const rate = radioMode ? 0.88 : 0.92;
 
-    const tryBrowserTTS = () => {
+    const fallbackBrowserTTS = (t: string, ttsLang = lang, ttsRate = rate) => {
       if (!window.speechSynthesis) return;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = radioMode ? "en-US" : "zh-CN";
+      const utterance = new SpeechSynthesisUtterance(t);
+      utterance.lang = ttsLang;
       utterance.pitch = 0.85;
-      utterance.rate = radioMode ? 0.88 : 0.92;
+      utterance.rate = ttsRate;
       utterance.volume = 0.75;
       const voices = window.speechSynthesis.getVoices();
-      const v = voices.find((voice) => (radioMode ? voice.lang.includes("en") : voice.lang.includes("zh")));
+      const v = voices.find((voice) => voice.lang.startsWith(ttsLang.split("-")[0]));
       if (v) utterance.voice = v;
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
@@ -690,16 +920,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       window.speechSynthesis.speak(utterance);
     };
 
-    tryFishAudio();
-  }, [radioMode]);
+    (async () => {
+      try {
+        const result = await trpcPost("tts.speak", {
+          text: text.slice(0, 500),
+          mode: ttsProvider,
+          lang,
+          speed: rate,
+        });
+        if ((result?.source === "fish" || result?.source === "mimo") && result.audioBase64) {
+          const mime = result.source === "mimo" ? "audio/wav" : "audio/mp3";
+          const audio = new Audio(`data:${mime};base64,${result.audioBase64}`);
+          ttsAudioRef.current = audio;
+
+          // Connect TTS to Web Audio analyser for waveform visualization
+          try {
+            const ctx = audioCtxRef.current;
+            const analyser = analyserRef.current;
+            if (ctx && analyser) {
+              const ttsSource = ctx.createMediaElementSource(audio);
+              ttsSource.connect(analyser);
+              ttsSourceRef.current = ttsSource;
+            }
+          } catch {
+            // May already be connected; ignore
+          }
+
+          duckMusic();
+          audio.onplay = () => setIsSpeaking(true);
+          audio.onended = () => { setIsSpeaking(false); restoreMusic(); };
+          audio.onerror = () => { setIsSpeaking(false); restoreMusic(); fallbackBrowserTTS(text); };
+          audio.play().catch(() => { restoreMusic(); fallbackBrowserTTS(text); });
+        } else {
+          fallbackBrowserTTS(result?.text || text, result?.lang || lang, result?.rate || rate);
+        }
+      } catch {
+        fallbackBrowserTTS(text);
+      }
+    })();
+  }, [radioMode, ttsProvider]);
 
   const stopSpeaking = useCallback(() => {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
+    if (ttsSourceRef.current) { try { ttsSourceRef.current.disconnect(); } catch {} ttsSourceRef.current = null; }
     setIsSpeaking(false);
   }, []);
 
-  // ---- Radio Mode ----
   // ---- Radio Mode ----
   const toggleRadioMode = useCallback(() => {
     setRadioMode((prev) => {
@@ -710,11 +977,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [showToast]);
 
+  // ---- Podcast Mode ----
+  const togglePodcastMode = useCallback(() => {
+    setPodcastMode((prev) => {
+      const next = !prev;
+      if (next) {
+        showToast("Podcast Mode ON — 生成 Claudio 的口播脚本...");
+        const track = currentTrack;
+        if (track?.neteaseId) {
+          setPodcastLoading(true);
+          const payload: Record<string, unknown> = {
+            trackId: String(track.neteaseId),
+            title: track.title,
+            artist: track.artist,
+            durationSec: track.duration || 180,
+          };
+          if (track.genre && track.genre.length > 0) payload.genre = track.genre;
+          if (lyrics.length > 0) {
+            payload.lyrics = lyrics.slice(0, 8).map(l => l.text).join(" / ");
+          }
+          trpcPost("chat.djScript", payload)
+            .then((data) => {
+              if (data?.segments) setPodcastScript(data);
+            })
+            .catch(() => showToast("脚本生成失败，使用默认模式"))
+            .finally(() => setPodcastLoading(false));
+        }
+      } else {
+        setPodcastScript(null);
+        setPodcastActiveSegId(null);
+        // Stop any playing podcast audio
+        if (podcastAudioRef.current) { podcastAudioRef.current.pause(); podcastAudioRef.current = null; }
+        showToast("Podcast Mode OFF");
+      }
+      return next;
+    });
+  }, [showToast, currentTrack, lyrics]);
+
   const setMood = useCallback((mood: string) => setEnvVibe((v) => ({ ...v, mood })), []);
   const setIntensity = useCallback((intensity: number) => setEnvVibe((v) => ({ ...v, intensity })), []);
   const setImmersed = useCallback((immersed: boolean) => setEnvVibe((v) => ({ ...v, immersed })), []);
 
-  // Load history when user changes
   // Load history when user changes
   useEffect(() => {
     if (user) {
@@ -722,7 +1025,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, loadChatHistory]);
 
-  // ---- Send Message (AI Chat) ----
   // ---- Send Message (AI Chat) ----
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -741,6 +1043,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const result = await trpcPost("chat.message", {
         text: text.trim(),
         history,
+        sessionId: getOrCreateSessionId(),
         env: {
           time: timeStr,
           weather: weather?.text || "clear",
@@ -787,7 +1090,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [messages, weather, envVibe, radioMode, speakText, currentTrack]);
 
-  // ---- Search & Play ----
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
   // ---- Search & Play ----
   const searchAndPlay = useCallback(async (query: string) => {
     if (!query.trim()) return;
@@ -825,28 +1129,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [showToast]);
 
   // ---- Play from recommendation ----
-  // ---- Play from recommendation ----
   const playFromRecommendation = useCallback(async (rec: Recommendation) => {
     if (!rec?.title) return;
     try {
       showToast(`Claudio 正在搜索《${rec.title}》...`);
-      const data = await trpcGet("netease.search", { keywords: `${rec.title} ${rec.artist || ""}`.trim(), limit: 5 });
-      const songs = data?.result?.songs;
-      if (!songs || !Array.isArray(songs) || songs.length === 0) {
+      const data = await trpcGet("netease.search", {
+        keywords: `${rec.title} ${rec.artist || ""}`.trim(),
+        limit: 1,
+      });
+      const song = data?.result?.songs?.[0];
+      if (!song) {
         showToast("抱歉，没找到这首歌");
         return;
       }
-      const s = songs[0];
       const track: Track = {
-        id: `nw-${s.id}`,
-        title: s.name || rec.title,
-        artist: Array.isArray(s.ar) ? s.ar.map((a: any) => a?.name || "").join(", ") : rec.artist || "未知",
-        album: s.al?.name || "",
-        duration: Math.floor((s.dt || 0) / 1000),
-        cover: s.al?.picUrl || "/cover-if.jpg",
+        id: `nw-${song.id}`,
+        title: song.name || rec.title,
+        artist: Array.isArray(song.ar) ? song.ar.map((a: { name?: string }) => a?.name || "").filter(Boolean).join(", ") : (rec.artist || "未知"),
+        album: song.al?.name || "",
+        duration: Math.floor((song.dt || 0) / 1000),
+        cover: song.al?.picUrl || "/cover-if.jpg",
         genre: [rec.vibe_match || "Recommended"],
         isFav: false,
-        neteaseId: s.id,
+        neteaseId: song.id,
       };
       setQueue((q) => [track, ...(q || [])]);
       setCurrentTrack(track);
@@ -858,7 +1163,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [showToast]);
 
-  // ---- Weather ----
   // ---- Weather ----
   const fetchWeather = useCallback(async () => {
     try {
@@ -879,20 +1183,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { fetchWeather(); }, [fetchWeather]);
 
   // ---- Value ----
-  // ---- Value ----
   const value: AppState & AppActions = {
     isPlaying, currentTrack, progress, duration, volume, queue,
     djPersona, messages, isTyping, weather, toast,
     isSpeaking, radioMode, envVibe, currentSubtitle, isListening,
     user, showLoginModal, authError, theme,
-    audioAnalyser, lyrics, currentLyricIndex, neteaseSession,
+    audioAnalyser, lyrics, currentLyricIndex, neteaseSession, ttsProvider,
+    podcastMode, podcastScript, podcastLoading, podcastActiveSegId,
     togglePlay, setVolume, nextTrack, prevTrack, sendMessage,
     playTrack, addToQueue, removeFromQueue, reorderQueue, toggleFav,
     showToast, searchAndPlay, speakText, stopSpeaking,
-    toggleRadioMode, setMood, setIntensity, setImmersed,
+    toggleRadioMode, togglePodcastMode, setMood, setIntensity, setImmersed,
     startVoiceInput, stopVoiceInput, fetchWeather, playFromRecommendation,
     login, register, logout, openLoginModal, closeLoginModal, setTheme,
-    bindNetease, unbindNetease, fetchLyrics, seekTo, importPlaylist,
+    setTtsProvider, duckMusic, restoreMusic,
+    bindNetease, unbindNetease, fetchLyrics, likeOnNetease, seekTo, importPlaylist,
+    syncLikes,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

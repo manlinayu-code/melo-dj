@@ -10,14 +10,14 @@ interface BreathingOrbProps {
 export default function BreathingOrb({ isListening = false, isSpeaking = false, isPlaying = false, onClick }: BreathingOrbProps) {
   const getColor = () => {
     if (isSpeaking) return 'from-indigo-500/40 to-violet-500/30';
-    if (isPlaying) return 'from-emerald-500/30 to-cyan-500/20';
+    if (isPlaying) return 'from-blue-500/30 to-sky-500/20';
     if (isListening) return 'from-amber-500/20 to-orange-500/15';
     return 'from-slate-500/15 to-slate-600/10';
   };
 
   const getGlowColor = () => {
     if (isSpeaking) return 'rgba(129, 140, 248, 0.3)';
-    if (isPlaying) return 'rgba(0, 208, 132, 0.2)';
+    if (isPlaying) return 'rgba(59, 130, 246, 0.2)';
     if (isListening) return 'rgba(245, 158, 11, 0.15)';
     return 'rgba(100, 116, 139, 0.1)';
   };
@@ -71,7 +71,7 @@ export default function BreathingOrb({ isListening = false, isSpeaking = false, 
           ease: 'easeInOut',
         }}
       >
-        <div className={`w-2 h-2 rounded-full ${isSpeaking ? 'bg-indigo-400' : isPlaying ? 'bg-emerald-400' : isListening ? 'bg-amber-400' : 'bg-slate-400'}`} />
+        <div className={`w-2 h-2 rounded-full ${isSpeaking ? 'bg-indigo-400' : isPlaying ? 'bg-blue-400' : isListening ? 'bg-amber-400' : 'bg-slate-400'}`} />
       </motion.div>
 
       {/* Ripple rings */}

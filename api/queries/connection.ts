@@ -1,7 +1,6 @@
-import { drizzle } from "drizzle-orm/mysql2";
-import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { env } from "../lib/env";
-import { parseDatabaseUrl } from "../lib/dbConfig";
 import * as schema from "@db/schema";
 import * as relations from "@db/relations";
 
@@ -14,19 +13,13 @@ export function getDb() {
     return null;
   }
   if (!instance) {
-    const config = parseDatabaseUrl(env.databaseUrl);
-    console.log(
-      `[db] Connecting to ${config.host}:${config.port} as ${config.user}, ssl=${config.ssl ? "enabled" : "disabled"}`
-    );
-    const pool = mysql.createPool({
-      ...config,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
+    console.log(`[db] Connecting to PostgreSQL via postgres-js...`);
+    const client = postgres(env.databaseUrl, {
+      max: 10,
+      idle_timeout: 30,
     });
-    instance = drizzle(pool, {
+    instance = drizzle(client, {
       schema: fullSchema,
-      mode: "default",
     });
   }
   return instance;
